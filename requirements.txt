@@ -1,0 +1,6 @@
+django
+python-dotenv
+pillow
+google-genai
+django-cors-headers
+djangorestframework
