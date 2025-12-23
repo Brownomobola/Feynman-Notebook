@@ -5,8 +5,9 @@ from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
 from google import genai
 from google.genai import types
-import os
-from PIL import Image
+from io import BytesIO
+import base64
+from PIL import Image, ImageEnhance
 from backend.backend.settings import GEMINI_API_KEY
 from typing import List, Dict, Any, Optional
 
@@ -14,24 +15,70 @@ class AnalyzeSolutionView(APIView):
     parser_classes = (MultiPartParser, FormParser)
     client = genai.Client(api_key=GEMINI_API_KEY)
 
-    async def transcribe_image(self, data, *args, **kwargs)-> str | None:
-        """Uses the gemini model for OCR on the problem and attempts image"""
+    async def transcribe_image(self, data: dict, enhance: bool= True, *args, **kwargs)-> Optional[str] | None:
+        """
+        Transcribes handwritten math with optional image preprocessing.
+        
+        Args:
+            image_path: Path to the image file
+            enhance: Whether to enhance contrast and sharpness
+            resize: Optional tuple (width, height) to resize image
+            
+        Returns:
+            Transcribed text in LaTeX/Markdown format, or error message
+        """
+        # Check if the image was inputted by the user
         if not data['image']:
             return data['text']
         
         try:
+            # Open the image using the PIL library
+            image = Image.open(data['image'])
+
+            # Convert to RGB if necessary
+            if image.mode != 'RGB':
+                image.convert('RGB')
+
+            # Enhance image for better OCR
+            if enhance:
+
+                # Increase contrast
+                enhancer = ImageEnhance.Contrast(image)
+                image = enhancer.enhance(1.5)
+
+                # Increase sharpness
+                enhancer = ImageEnhance.Sharpness(image)
+                image = enhancer.enhance(2.0)
+
+            # Convert image to Bytes
+            buffer = BytesIO()
+            image.save(buffer, format='JPEG', quality=95)
+            image_bytes = buffer.getvalue()
+
+            # Encode to base64
+            image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+
             # Add the images for OCR
-            prompt = [{'text': 'Transcribe the handwritten maths in this image to LaTex/Markdown. Return ONLY the text, no explanations.'},
-            {'inline_data': {
-                'mime_type': 'image/jpeg',
-                'data': data['image']
-            }}]
+            prompt_parts = [
+                {
+                    'text': 'Transcribe the handwritten maths in this image to LaTex/Markdown.' 
+                    'Return ONLY the text, no explanations.'
+                },
+                {
+                'inline_data': {
+                    'mime_type': 'image/jpeg',
+                    'data': image_base64
+                    }
+                }
+            ]
 
             response = await self.client.aio.models.generate_content(
                 model = "gemini-2.5-flash",
-                contents= {'parts': prompt}
+                contents= {'parts': prompt_parts}
             )
             return response.text if response.text else None
+        
+        # Handle exceptions that may occur
         except Exception as e:
             return f"Error {str(e)} occurred during transcription"
             
@@ -39,9 +86,6 @@ class AnalyzeSolutionView(APIView):
             
 
     def post(self, request, *args, **kwargs):
-        # 1. Setup Gemini (client is a class attribute)
-        # Using Gemini 1.5 Pro (latest stable equivalent to 3 for API access)
-        model = 'gemini-2.5-flash-lite'
 
         # 2. Get Images from Request
         problem_img_file = request.FILES.get('problem_image')
