@@ -10,12 +10,23 @@ import base64
 from PIL import Image, ImageEnhance
 from backend.backend.settings import GEMINI_API_KEY
 from typing import List, Dict, Any, Optional
+from pydantic import BaseModel, Field
+import json
+
+class AnalysisResponseSchema(BaseModel):
+        """Defines the json response schema for the model"""
+        title: str = Field(description="A short descriptive title for the analysis")
+        tags: list[str] = Field(description="A list of 3-5 relevant tags for the problem solved")
+        praise: str = Field(description="A short text commending the student on the things they got right")
+        diagnosis: str = Field(description="A short text highlighting what the student got wrong")
+        explanation: str = Field(description="An explanation of what the student got wrong using a real-world analogy")
+        practice_problem: str = Field(description="A practice problem similar to the original problem")
 
 class AnalyzeSolutionView(APIView):
     parser_classes = (MultiPartParser, FormParser)
     client = genai.Client(api_key=GEMINI_API_KEY)
 
-    async def transcribe_image(self, data: dict, enhance: bool= True, *args, **kwargs)-> Optional[str] | None:
+    async def transcribe_image(self, request, enhance: bool= True, *args, **kwargs)-> Optional[str] | Response:
         """
         Transcribes handwritten math with optional image preprocessing.
         
@@ -28,12 +39,13 @@ class AnalyzeSolutionView(APIView):
             Transcribed text in LaTeX/Markdown format, or error message
         """
         # Check if the image was inputted by the user
-        if not data['image']:
-            return data['text']
+        if not request.FILES.get('image'): 
+            return request.FILES.get('text') if request.FILES.get('text') else Response({'error': 'You must input at least an image or text'}, status=400)
         
+        data = request.FILES.get('image')
         try:
             # Open the image using the PIL library
-            image = Image.open(data['image'])
+            image = Image.open(data)
 
             # Convert to RGB if necessary
             if image.mode != 'RGB':
@@ -76,7 +88,7 @@ class AnalyzeSolutionView(APIView):
                 model = "gemini-2.5-flash",
                 contents= {'parts': prompt_parts}
             )
-            return response.text if response.text else None
+            return response.text if response.text else request.FILES.get('text')
         
         # Handle exceptions that may occur
         except Exception as e:
@@ -85,21 +97,9 @@ class AnalyzeSolutionView(APIView):
         
             
 
-    def post(self, request, *args, **kwargs):
-
-        # 2. Get Images from Request
-        problem_img_file = request.FILES.get('problem_image')
-        attempt_img_file = request.FILES.get('attempt_image')
-
-        if not problem_img_file or not attempt_img_file:
-            return Response({"error": "Both images are required"}, status=400)
-
-        # 3. Convert to PIL Images for Gemini
-        problem_img = Image.open(problem_img_file)
-        attempt_img = Image.open(attempt_img_file)
-
-        # 4. The Feynman Prompt (The "Secret Sauce")
-        prompt = """
+    async def analyze(self, data, *args, **kwargs):
+        # The Feynman Prompt (The "Secret Sauce")
+        system_prompt = """
         <role>
         You are the "Feynman Engineering Tutor." Your goal is not to solve problems for students, but to identify the specific "gap" in their intuition that is causing them to fail. You are empathetic, clear, and use real-world analogies (the Feynman technique) to explain abstract math/physics concepts.
         Do not show the student the solution right away, rather challenge the student to think deeply and recognize gaps in their thought process. Only when you find that they can't solve the problem would you reveal the solution.
@@ -116,18 +116,43 @@ class AnalyzeSolutionView(APIView):
         </reasoning_process>
 
         <formatting_rules>
-        *   **LaTeX:** You MUST use standard LaTeX delimiters for all math expressions ($...$ or $$...$$).
+        *   **LaTeX:** You MUST use standard LaTeX delimiters for all math expressions ($...$ for inline math expression or $$...$$for block math expression).
         </formatting_rules>
         """
 
+        # The prompt containing the user's question and attempt
+        prompt_parts = []
+
+        # Add problem context
+        prompt_parts.append({'text': 'Here is the target problem context: '})
+
+        if data['problem']:
+            prompt_parts.append({'text': data['problem']})
+        else:
+            return Response({'error': 'Input problem context'}, status=400)
+        
+        # Add attempt context
+        prompt_parts.append({'text': 'Here is the attempt context: '})
+
+        if data['attempt']:
+            prompt_parts.append({'text': data['attempt']})
+        else:
+            return Response({'error': 'Input attempt context'}, status=400)
+
+
+
         # 5. Generate Content
         try:
-            chat = self.client.chats.create(
-                model=model,
-                config=types.GenerateContentConfig(
-                    system_instruction=prompt,)
+            response = await self.client.aio.models.generate_content_stream(
+                model = "gemini-2.5-flash",
+                config = {
+                    'system_instruction': system_prompt,
+                    'response_mime_type': 'application/json',
+                    'response_json_schema': AnalysisResponseSchema.model_json_schema()
+                },
+                contents={'parts': prompt_parts}
             )
-            response = chat.send_message_stream([prompts])
-            return Response(response.text) # Returning raw text (JSON string)
-        except Exception as e:
-            return Response({"error": str(e)}, status=500)
+
+            response_parsed = json.loads(response)
+            
+            
