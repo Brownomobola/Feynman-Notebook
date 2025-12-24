@@ -1,5 +1,5 @@
 from django.shortcuts import render
-from rest_framework.views import APIView
+from django.http import StreamingHttpResponse
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -12,6 +12,7 @@ from backend.backend.settings import GEMINI_API_KEY
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 import json
+import re
 
 class AnalysisResponseSchema(BaseModel):
         """Defines the json response schema for the model"""
@@ -92,9 +93,7 @@ class AnalyzeSolutionView(APIView):
         
         # Handle exceptions that may occur
         except Exception as e:
-            return f"Error {str(e)} occurred during transcription"
-            
-        
+            return Response({'error': f'Error {str(e)} occured during transcription'}, status=500)
             
 
     async def analyze(self, data, *args, **kwargs):
@@ -126,7 +125,7 @@ class AnalyzeSolutionView(APIView):
         # Add problem context
         prompt_parts.append({'text': 'Here is the target problem context: '})
 
-        if data['problem']:
+        if data.get('problem'):
             prompt_parts.append({'text': data['problem']})
         else:
             return Response({'error': 'Input problem context'}, status=400)
@@ -134,25 +133,143 @@ class AnalyzeSolutionView(APIView):
         # Add attempt context
         prompt_parts.append({'text': 'Here is the attempt context: '})
 
-        if data['attempt']:
+        if data.get('attempt'):
             prompt_parts.append({'text': data['attempt']})
         else:
             return Response({'error': 'Input attempt context'}, status=400)
 
-
-
-        # 5. Generate Content
-        try:
-            response = await self.client.aio.models.generate_content_stream(
-                model = "gemini-2.5-flash",
-                config = {
-                    'system_instruction': system_prompt,
-                    'response_mime_type': 'application/json',
-                    'response_json_schema': AnalysisResponseSchema.model_json_schema()
-                },
-                contents={'parts': prompt_parts}
-            )
-
-            response_parsed = json.loads(response)
+        # Async generator to stream the response
+        async def stream_generator():
+            accumulated_text = ""
+            field_positions = {}
             
+            # Get schema properties
+            schema_properties = AnalysisResponseSchema.model_json_schema().get('properties', {})
             
+            # Initialize field positions for string fields
+            for field_name, field_info in schema_properties.items():
+                field_type = field_info.get('type', '')
+                if field_type == 'string':
+                    field_positions[field_name] = 0
+            
+            # Track array field separately
+            array_field_name = None
+            for field_name, field_info in schema_properties.items():
+                if field_info.get('type') == 'array':
+                    array_field_name = field_name
+                    break
+            
+            try:
+                response = await self.client.aio.models.generate_content_stream(
+                    model="gemini-2.0-flash-exp",
+                    config={
+                        'system_instruction': system_prompt,
+                        'response_mime_type': 'application/json',
+                        'response_schema': AnalysisResponseSchema
+                    },
+                    contents={'parts': prompt_parts}
+                )
+                
+                last_array_content = ""
+                
+                async for chunk in response:
+                    if chunk.text:
+                        accumulated_text += chunk.text
+                        
+                        # Extract and stream string fields progressively
+                        for field_name in field_positions.keys():
+                            pattern = rf'"{field_name}"\s*:\s*"([^"]*(?:\\"[^"]*)*)'
+                            match = re.search(pattern, accumulated_text)
+                            
+                            if match:
+                                current_value = match.group(1)
+                                # Unescape JSON strings
+                                current_value = current_value.replace('\\"', '"')
+                                current_value = current_value.replace('\\n', '\n')
+                                current_value = current_value.replace('\\t', '\t')
+                                
+                                # Get only new content for this field
+                                last_pos = field_positions[field_name]
+                                new_content = current_value[last_pos:]
+                                
+                                if new_content:
+                                    # Send SSE formatted data
+                                    event_data = {
+                                        'type': 'partial',
+                                        'field': field_name,
+                                        'content': new_content,
+                                        'is_complete': False
+                                    }
+                                    yield f"data: {json.dumps(event_data)}\n\n".encode('utf-8')
+                                    field_positions[field_name] = len(current_value)
+                        
+                        # Handle array field if it exists
+                        if array_field_name:
+                            # Extract array content
+                            array_pattern = rf'"{array_field_name}"\s*:\s*\[(.*?)(?:\]|$)'
+                            array_match = re.search(array_pattern, accumulated_text, re.DOTALL)
+                            
+                            if array_match:
+                                array_content = array_match.group(1)
+                                
+                                # Check if there's new array content
+                                if array_content != last_array_content:
+                                    # Extract individual array items
+                                    items = re.findall(r'"([^"]*(?:\\"[^"]*)*)"', array_content)
+                                    
+                                    if items:
+                                        # Unescape items
+                                        unescaped_items = [
+                                            item.replace('\\"', '"').replace('\\n', '\n')
+                                            for item in items
+                                        ]
+                                        
+                                        event_data = {
+                                            'type': 'array',
+                                            'field': array_field_name,
+                                            'content': unescaped_items,
+                                            'is_complete': False
+                                        }
+                                        yield f"data: {json.dumps(event_data)}\n\n".encode('utf-8')
+                                        last_array_content = array_content
+                
+                # Try to parse complete JSON at the end
+                try:
+                    complete_json = json.loads(accumulated_text)
+                    completion_data = {
+                        'type': 'complete',
+                        'field': 'all',
+                        'content': complete_json,
+                        'is_complete': True
+                    }
+                    yield f"data: {json.dumps(completion_data)}\n\n".encode('utf-8')
+                except json.JSONDecodeError:
+                    # Send accumulated text as fallback
+                    completion_data = {
+                        'type': 'complete',
+                        'field': 'all',
+                        'content': accumulated_text,
+                        'is_complete': True
+                    }
+                    yield f"data: {json.dumps(completion_data)}\n\n".encode('utf-8')
+                
+            except Exception as e:
+                error_data = {
+                    'type': 'error',
+                    'field': 'error',
+                    'content': str(e),
+                    'is_complete': True
+                }
+                yield f"data: {json.dumps(error_data)}\n\n".encode('utf-8')
+        
+        # Return StreamingHttpResponse with SSE headers
+        response = StreamingHttpResponse(
+            stream_generator(),
+            content_type='text/event-stream'
+        )
+        response['Cache-Control'] = 'no-cache'
+        response['X-Accel-Buffering'] = 'no'
+        response['Access-Control-Allow-Origin'] = '*'  # Adjust for your CORS policy when releasing for production
+        return response
+                
+                
