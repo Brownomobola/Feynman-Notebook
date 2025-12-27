@@ -588,3 +588,78 @@ class ChatView(APIView):
         response['Access-Control-Allow-Origin'] = '*'  # Adjust for your CORS policy when releasing for production
         
         return response
+
+
+class GymResponseSchema(BaseModel):
+    """Defines the json response schema for the gym solution"""
+    is_correct: bool = Field(description="Indicates if the solution is correct")
+    feedback: str = Field(description="Feedback on the provided solution")
+    solution: str = Field(description="The step-by-step solution in LaTeX format")
+    next_question: str = Field(description="A follow-up question to further challenge the student. Make it harder if is_correct is true, easier if false.")
+
+
+class GymSolutionView(APIView):
+    parser_classes = (MultiPartParser, FormParser)
+    client = genai.Client(api_key=GEMINI_API_KEY)
+
+    async def transcribe_gym_image(self, request, enhance: bool = True, *args, **kwargs) -> Optional[str] | Response:
+        """
+        Transcribes handwritten math from an uploaded image.
+        
+        Args:
+            request: The HTTP request containing the image file
+            enhance: Whether to enhance contrast and sharpness
+            
+        Returns:
+            Transcribed text in LaTeX/Markdown format, or error Response
+        """
+        # Get image and text from request
+        image_file = request.FILES.get('image')
+        text_fallback = request.FILES.get('text')
+        
+        # Create transcriber instance
+        transcriber = ImageTranscriber(client=self.client)
+        
+        try:
+            result = await transcriber.transcribe(
+                image_file=image_file,
+                text_fallback=text_fallback,
+                enhance=enhance
+            )
+            return result
+        except ValueError as e:
+            return Response({'error': str(e)}, status=400)
+        except Exception as e:
+            return Response({'error': str(e)}, status=500)
+
+    async def gym_solution(self, data, *args, **kwargs):
+        """"Implementation of the gym solution logic"""
+        system_prompt = """
+        You are an expert math problem solver. Provide step-by-step solutions in LaTeX format.
+        """
+
+        prompt_parts = []
+
+        prompt_parts.append({'text': 'Solve the following math problem: '})
+
+        if data.get('problem'):
+            prompt_parts.append({'text': data['problem']})
+        else:
+            return Response({'error': 'Input problem context'}, status=400)
+
+        stream_generator = AnalysisStreamGenerator(
+            client=self.client,
+            system_prompt=system_prompt,
+            prompt_parts=prompt_parts,
+            response_schema=GymResponseSchema
+        )
+
+        response = StreamingHttpResponse(
+            stream_generator.generate(),
+            content_type='text/event-stream'
+        )
+        response['Cache-Control'] = 'no-cache'
+        response['X-Accel-Buffering'] = 'no'
+        response['Access-Control-Allow-Origin'] = '*'  # Adjust for your CORS policy when releasing for production
+
+        return response
