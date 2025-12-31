@@ -1,4 +1,5 @@
-from django.shortcuts import render
+from django.shortcuts import render, aget_object_or_404
+from django.views.decorators.http import require_http_methods
 from django.http import StreamingHttpResponse
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -11,18 +12,10 @@ from PIL import Image, ImageEnhance
 from backend.backend.settings import GEMINI_API_KEY
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
+from asgiref.sync import sync_to_async
 import json
 import re
-
-class AnalysisResponseSchema(BaseModel):
-        """Defines the json response schema for the model"""
-        title: str = Field(description="A short descriptive title for the analysis")
-        tags: list[str] = Field(description="A list of 3-5 relevant tags for the problem solved")
-        praise: str = Field(description="A short text commending the student on the things they got right")
-        diagnosis: str = Field(description="A short text highlighting what the student got wrong")
-        explanation: str = Field(description="An explanation of what the student got wrong using a real-world analogy")
-        practice_problem: str = Field(description="A practice problem similar to the original problem")
-
+from .models import AnalysisTranscript, GymTranscript, Analysis
 
 class ImageTranscriber:
     """
@@ -110,7 +103,6 @@ class ImageTranscriber:
         
         except Exception as e:
             raise Exception(f'Error {str(e)} occurred during transcription')
-
 
 class AnalysisStreamGenerator:
     """
@@ -287,7 +279,6 @@ class AnalysisStreamGenerator:
             }
             yield f"data: {json.dumps(error_data)}\n\n".encode('utf-8')
 
-
 class ChatStreamGenerator:
     """
     Handles streaming of conversational AI responses in Server-Sent Events (SSE) format.
@@ -390,11 +381,20 @@ class ChatStreamGenerator:
             }
             yield f"data: {json.dumps(error_data)}\n\n".encode('utf-8')
 
+class AnalysisResponseSchema(BaseModel):
+        """Defines the json response schema for the model"""
+        title: str = Field(description="A short descriptive title for the analysis")
+        tags: list[str] = Field(description="A list of 3-5 relevant tags for the problem solved")
+        praise: str = Field(description="A short text commending the student on the things they got right")
+        diagnosis: str = Field(description="A short text highlighting what the student got wrong")
+        explanation: str = Field(description="An explanation of what the student got wrong using a real-world analogy")
+        practice_problem: str = Field(description="A practice problem similar to the original problem")
 
 class AnalyzeSolutionView(APIView):
     parser_classes = (MultiPartParser, FormParser)
     client = genai.Client(api_key=GEMINI_API_KEY)
-
+    
+    @require_http_methods(["POST"])
     async def transcribe_image(self, request, enhance: bool = True, *args, **kwargs) -> Optional[str] | Response:
         """
         Transcribes handwritten math from an uploaded image.
@@ -406,27 +406,39 @@ class AnalyzeSolutionView(APIView):
         Returns:
             Transcribed text in LaTeX/Markdown format, or error Response
         """
-        # Get image and text from request
-        image_file = request.FILES.get('image')
-        text_fallback = request.FILES.get('text')
-        
-        # Create transcriber instance
-        transcriber = ImageTranscriber(client=self.client)
-        
-        try:
-            result = await transcriber.transcribe(
-                image_file=image_file,
-                text_fallback=text_fallback,
-                enhance=enhance
-            )
-            return result
-        except ValueError as e:
-            return Response({'error': str(e)}, status=400)
-        except Exception as e:
-            return Response({'error': str(e)}, status=500)
+        if request.method == 'POST':
+            # Get image and text from request
+            image_file = request.FILES.get('image')
+            text_fallback = request.POST.get('text', '')
+            is_question = 'is_question' in request.POST
             
+            # Create transcriber instance
+            transcriber = ImageTranscriber(client=self.client)
+            
+            try:
+                result = await transcriber.transcribe(
+                    image_file=image_file,
+                    text_fallback=text_fallback,
+                    enhance=enhance
+                )
 
-    async def analyze(self, data, *args, **kwargs):
+                analysis_transcript = AnalysisTranscript.objects.create(
+                    image_obj = image_file,
+                    text_obj = text_fallback,
+                    is_question = is_question,
+                    transcript = result
+                )
+
+                request.session['analysis_transcript'] = analysis_transcript.id
+
+                return result
+            except ValueError as e:
+                return Response({'error': str(e)}, status=400)
+            except Exception as e:
+                return Response({'error': str(e)}, status=500)
+            
+    @require_http_methods(['POST', 'GET'])
+    async def analyze(self, request, *args, **kwargs):
         # The Feynman Prompt (The "Secret Sauce")
         system_prompt = """
         <role>
@@ -449,43 +461,97 @@ class AnalyzeSolutionView(APIView):
         </formatting_rules>
         """
 
-        # The prompt containing the user's question and attempt
-        prompt_parts = []
+        if request.method == 'POST':
+            data = request.POST.dict()
+            # The prompt containing the user's question and attempt
+            prompt_parts = []
 
-        # Add problem context
-        prompt_parts.append({'text': 'Here is the target problem context: '})
+            # Add problem context
+            prompt_parts.append({'text': 'Here is the target problem context: '})
 
-        if data.get('problem'):
-            prompt_parts.append({'text': data['problem']})
-        else:
-            return Response({'error': 'Input problem context'}, status=400)
-        
-        # Add attempt context
-        prompt_parts.append({'text': 'Here is the attempt context: '})
+            if data.get('problem'):
+                prompt_parts.append({'text': data['problem']})
+            else:
+                return Response({'error': 'Input problem context'}, status=400)
+            
+            # Add attempt context
+            prompt_parts.append({'text': 'Here is the attempt context: '})
 
-        if data.get('attempt'):
-            prompt_parts.append({'text': data['attempt']})
-        else:
-            return Response({'error': 'Input attempt context'}, status=400)
+            if data.get('attempt'):
+                prompt_parts.append({'text': data['attempt']})
+            else:
+                return Response({'error': 'Input attempt context'}, status=400)
 
-        # Create the stream generator instance
-        stream_generator = AnalysisStreamGenerator(
-            client=self.client,
-            system_prompt=system_prompt,
-            prompt_parts=prompt_parts,
-            response_schema=AnalysisResponseSchema
-        )
-        
-        # Return StreamingHttpResponse with SSE headers
-        response = StreamingHttpResponse(
-            stream_generator.generate(),
-            content_type='text/event-stream'
-        )
-        response['Cache-Control'] = 'no-cache'
-        response['X-Accel-Buffering'] = 'no'
-        response['Access-Control-Allow-Origin'] = '*'  # Adjust for your CORS policy when releasing for production
-        return response
+            # Create the analysis object in the database
+            analysis = await Analysis.objects.acreate(
+                problem=data['problem'],
+                attempt=data['attempt']
+            )
 
+            analysis_id = analysis.id
+            request.session['last_analysis_id'] = analysis.id
+
+            # Create wrapper generator that saves to database
+            async def stream_with_db_save():
+                accumulated_result = {
+                    'title': '',
+                    'tag': [],
+                    'praise': '',
+                    'diagnosis': '',
+                    'explanation': '',
+                    'practice_problem': ''
+                }
+
+                # Create the stream generator instance
+                stream_generator = AnalysisStreamGenerator(
+                    client=self.client,
+                    system_prompt=system_prompt,
+                    prompt_parts=prompt_parts,
+                    response_schema=AnalysisResponseSchema
+                )
+                
+                # Stream and accumulate the result
+                async for chunk in stream_generator.generate():
+                    yield chunk
+                
+                    # Parse the chunks and accumulate them
+                    try:
+                        chunk_str = chunk.decode('utf-8')
+                        if chunk_str.startswith('data: '):
+                            json_str = chunk_str[6:].strip()
+                            event_data = json.loads(json_str)
+
+                            # Accumulate based on event type
+                            if event_data['type'] == 'partial':
+                                field = event_data['field']
+                                content = event_data['content']
+                                accumulated_result[field] += content
+                            elif event_data['type'] == 'array':
+                                field = event_data['field']
+                                accumulated_result[field] = event_data['content']
+                            elif event_data['type'] == 'boolean':
+                                field = event_data['field']
+                                accumulated_result[field] = event_data['content']
+                            elif event_data['type'] == 'complete':
+                                if isinstance(event_data['content'], dict):
+                                    accumulated_result.update(event_data['content']) # Final update with complete JSON
+
+                    except:
+                        pass
+
+                # Save to the database after streaming is complete
+                analysis = aget_object_or_404(Analysis, id=analysis_id)
+                analysis.title = accumulated_result.get()
+
+                # Return StreamingHttpResponse with SSE headers
+                response = StreamingHttpResponse(
+                    stream_generator.generate(),
+                    content_type='text/event-stream'
+                )
+                response['Cache-Control'] = 'no-cache'
+                response['X-Accel-Buffering'] = 'no'
+                response['Access-Control-Allow-Origin'] = '*'  # Adjust for your CORS policy when releasing for production
+                return response
 
 class ChatView(APIView):
     """
@@ -589,14 +655,12 @@ class ChatView(APIView):
         
         return response
 
-
 class GymResponseSchema(BaseModel):
     """Defines the json response schema for the gym solution"""
     is_correct: bool = Field(description="Indicates if the solution is correct")
     feedback: str = Field(description="Feedback on the provided solution")
     solution: str = Field(description="The step-by-step solution in LaTeX format")
     next_question: str = Field(description="A follow-up question to further challenge the student. Make it harder if is_correct is true, easier if false.")
-
 
 class GymSolutionView(APIView):
     parser_classes = (MultiPartParser, FormParser)
@@ -615,7 +679,7 @@ class GymSolutionView(APIView):
         """
         # Get image and text from request
         image_file = request.FILES.get('image')
-        text_fallback = request.FILES.get('text')
+        text_fallback = request.FILES.get('text', '')
         
         # Create transcriber instance
         transcriber = ImageTranscriber(client=self.client)
@@ -626,6 +690,15 @@ class GymSolutionView(APIView):
                 text_fallback=text_fallback,
                 enhance=enhance
             )
+
+            gym_transcript = GymTranscript.objects.create(
+                image_obj=image_file,
+                text_obj=text_fallback,
+                transcript = result
+            )
+
+            request.session['gym_transcript'] = gym_transcript.id
+
             return result
         except ValueError as e:
             return Response({'error': str(e)}, status=400)
