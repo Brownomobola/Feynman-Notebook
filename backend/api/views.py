@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from asgiref.sync import sync_to_async
 import json
 import re
-from .models import AnalysisTranscript, GymTranscript, Analysis
+from .models import AnalysisTranscript, GymTranscript, Analysis, GymSesh, GymQuestions
 
 class ImageTranscriber:
     """
@@ -540,18 +540,61 @@ class AnalyzeSolutionView(APIView):
                         pass
 
                 # Save to the database after streaming is complete
-                analysis = aget_object_or_404(Analysis, id=analysis_id)
-                analysis.title = accumulated_result.get()
+                try:
+                    analysis = await aget_object_or_404(Analysis, id=analysis_id)
+                    analysis.title = accumulated_result.get('title', '')
+                    analysis.tags = accumulated_result.get('tags', [])
+                    analysis.praise = accumulated_result.get('praise', '')
+                    analysis.diagnosis = accumulated_result.get('diagnosis', '')
+                    analysis.explanation = accumulated_result.get('explanation', '')
+                    await analysis.asave()
+
+                    gym_sesh = await GymSesh.objects.acreate(
+                        analysis=analysis,
+                        status=GymSesh.Status.PENDING
+                    )
+
+                    gym_question = await GymQuestions.objects.acreate(
+                        gym_sesh=gym_sesh,
+                        question=accumulated_result.get('practice_problem', ''),
+                        question_number=1,
+                    )
+
+                    # Send final event with analysis ID
+                    final_event = {
+                        'type': 'analysis_saved',
+                        'analysis_id': analysis_id,
+                        'gym_sesh_id': gym_sesh.id,
+                        'is_complete': True
+                    }
+                    yield f"data: {json.dumps(final_event)}\n\n".encode('utf-8')
+                except Exception as e:
+                    final_event = {
+                        'type': 'save_error',
+                        'content': f'Failed to save analysis, {str(e)} occured',
+                        'is_complete': True
+                    }
+                    yield f"data: {json.dumps(final_event)}\n\n".encode('utf-8')
 
                 # Return StreamingHttpResponse with SSE headers
-                response = StreamingHttpResponse(
-                    stream_generator.generate(),
-                    content_type='text/event-stream'
-                )
-                response['Cache-Control'] = 'no-cache'
-                response['X-Accel-Buffering'] = 'no'
-                response['Access-Control-Allow-Origin'] = '*'  # Adjust for your CORS policy when releasing for production
-                return response
+            response = StreamingHttpResponse(
+                stream_with_db_save(),
+                content_type='text/event-stream'
+            )
+            response['Cache-Control'] = 'no-cache'
+            response['X-Accel-Buffering'] = 'no'
+            response['Access-Control-Allow-Origin'] = '*'  # Adjust for your CORS policy when releasing for production
+            return response
+        
+        # GET request - Display the current analysis
+        analysis_id = request.session.get('last_analysis_id')
+
+        if not analysis_id:
+            return Response(f"Could not find the analysis", status=404)
+        
+        analysis = await aget_object_or_404(Analysis, id=analysis_id)   
+
+        return Response(analysis.to_dict(), status=200)
 
 class ChatView(APIView):
     """
@@ -657,8 +700,8 @@ class ChatView(APIView):
 
 class GymResponseSchema(BaseModel):
     """Defines the json response schema for the gym solution"""
-    is_correct: bool = Field(description="Indicates if the solution is correct")
-    feedback: str = Field(description="Feedback on the provided solution")
+    is_correct: bool = Field(description="Indicates if the attempt is correct")
+    feedback: str = Field(description="Feedback on the provided attempt")
     solution: str = Field(description="The step-by-step solution in LaTeX format")
     next_question: str = Field(description="A follow-up question to further challenge the student. Make it harder if is_correct is true, easier if false.")
 
@@ -679,7 +722,7 @@ class GymSolutionView(APIView):
         """
         # Get image and text from request
         image_file = request.FILES.get('image')
-        text_fallback = request.FILES.get('text', '')
+        text_fallback = request.POST.get('text', '')
         
         # Create transcriber instance
         transcriber = ImageTranscriber(client=self.client)
@@ -705,34 +748,43 @@ class GymSolutionView(APIView):
         except Exception as e:
             return Response({'error': str(e)}, status=500)
 
-    async def gym_solution(self, data, *args, **kwargs):
+    @require_http_methods(['GET', 'POST'])
+    async def gym_solution(self, request, *args, **kwargs):
         """"Implementation of the gym solution logic"""
         system_prompt = """
-        You are an expert math problem solver. Provide step-by-step solutions in LaTeX format.
+        You are an expert math problem solver. Provide step-by-step solutions in LaTeX format and compare it to the attempt.
         """
+        if request.method == 'POST':
+            data = request.POST.dict()
+        
+            prompt_parts = []
 
-        prompt_parts = []
+            prompt_parts.append({'text': 'Solve the following math problem: '})
 
-        prompt_parts.append({'text': 'Solve the following math problem: '})
+            if data.get('problem'):
+                prompt_parts.append({'problem text': data['problem']})
+            else:
+                return Response({'error': 'No problem context'}, status=500)
+            
+            if data.get('attempt'):
+                prompt_parts.append({'attempt text': data['attempt']})
+            else:
+                return Response({'error': 'Input attempt context'}, status=400)
+            
+            stream_generator = AnalysisStreamGenerator(
+                client=self.client,
+                system_prompt=system_prompt,
+                prompt_parts=prompt_parts,
+                response_schema=GymResponseSchema
+            )
 
-        if data.get('problem'):
-            prompt_parts.append({'text': data['problem']})
-        else:
-            return Response({'error': 'Input problem context'}, status=400)
+            response = StreamingHttpResponse(
+                stream_generator.generate(),
+                content_type='text/event-stream'
+            )
+            response['Cache-Control'] = 'no-cache'
+            response['X-Accel-Buffering'] = 'no'
+            response['Access-Control-Allow-Origin'] = '*'  # Adjust for your CORS policy when releasing for production
 
-        stream_generator = AnalysisStreamGenerator(
-            client=self.client,
-            system_prompt=system_prompt,
-            prompt_parts=prompt_parts,
-            response_schema=GymResponseSchema
-        )
-
-        response = StreamingHttpResponse(
-            stream_generator.generate(),
-            content_type='text/event-stream'
-        )
-        response['Cache-Control'] = 'no-cache'
-        response['X-Accel-Buffering'] = 'no'
-        response['Access-Control-Allow-Origin'] = '*'  # Adjust for your CORS policy when releasing for production
-
-        return response
+            return response
+        
