@@ -89,7 +89,7 @@ class GymSesh(models.Model):
         help_text="The status of the gym session"
     )
     num_questions = models.IntegerField(default=1, help_text="The number of questions the user solved")
-    score = models.IntegerField(blank=True, help_text="The number of questions answered correctly")
+    score = models.IntegerField(default=0, blank=True, help_text="The number of questions answered correctly")
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the gym session started")
     started_at = models.DateTimeField(null=True, blank=True, help_text="When the user started the gym session")
     completed_at = models.DateTimeField(null=True, blank=True, help_text="When the gym session ended")
@@ -116,17 +116,32 @@ class GymSesh(models.Model):
     
 class GymQuestions(models.Model):
     """Stores each gym questions and links it to the correct Gym session"""
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        TRANSCRIBING = 'transcribing', 'Transcribing'
+        EVALUATING = 'evaluating', 'Evaluated'
+        EVALUATED = 'evaluated', 'Evaluated'
+        ERROR = 'error', 'Error'
+
     gym_sesh = models.ForeignKey(
         GymSesh,
         on_delete=models.CASCADE,
         related_name="Questions",
         help_text="The gym session the questions belong to"
     )
+    status = models.CharField(
+        choices=Status.choices,
+        max_length=20,
+        default=Status.PENDING,
+        db_index=True,
+        help_text="The status of the question"
+    )
     question = models.TextField(help_text="The question text")
     question_number = models.IntegerField(help_text="The question number")
     attempt = models.TextField(blank=True, help_text="The user's answer")
     is_correct = models.BooleanField(default=False, help_text="Is the user's answer correct")
     feedback = models.TextField(blank=True, help_text="The models feedback on the user's attempt")
+    solution = models.TextField(blank=True, help_text="The models solution to the problem")
     is_answered = models.BooleanField(default=False, help_text="Whether the question has been answered")
     answered_at = models.DateTimeField(blank=True, null=True, help_text="When the question was answered")
 
@@ -137,6 +152,7 @@ class GymQuestions(models.Model):
         indexes = [
             models.Index(fields=['is_correct']),
             models.Index(fields=['gym_sesh', 'is_correct'])
+            models.Index(fields=['status', 'gym_sesh'])
         ]
 
     def __str__(self)-> str:

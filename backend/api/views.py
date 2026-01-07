@@ -1,20 +1,19 @@
-from django.shortcuts import render, aget_object_or_404
+from django.shortcuts import render, aget_object_or_404, redirect
 from django.views.decorators.http import require_http_methods
 from django.http import StreamingHttpResponse
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
 from google import genai
-from google.genai import types
 from io import BytesIO
 import base64
 from PIL import Image, ImageEnhance
 from backend.backend.settings import GEMINI_API_KEY
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
-from asgiref.sync import sync_to_async
 import json
 import re
+from django.utils import timezone
 from .models import AnalysisTranscript, GymTranscript, Analysis, GymSesh, GymQuestions
 
 class ImageTranscriber:
@@ -541,7 +540,6 @@ class AnalyzeSolutionView(APIView):
 
                 # Save to the database after streaming is complete
                 try:
-                    analysis = await aget_object_or_404(Analysis, id=analysis_id)
                     analysis.title = accumulated_result.get('title', '')
                     analysis.tags = accumulated_result.get('tags', [])
                     analysis.praise = accumulated_result.get('praise', '')
@@ -560,11 +558,17 @@ class AnalyzeSolutionView(APIView):
                         question_number=1,
                     )
 
+                    gym_sesh_id = gym_sesh.id
+                    gym_question_id = gym_question.id
+                    request.session['gym_sesh_id'] = gym_sesh.id
+                    request.session['gym_question_id'] = gym_question.id
                     # Send final event with analysis ID
                     final_event = {
                         'type': 'analysis_saved',
                         'analysis_id': analysis_id,
-                        'gym_sesh_id': gym_sesh.id,
+                        'gym_sesh_id': gym_sesh_id,
+                        'gym_question_id': gym_question_id,
+                        'question_number': 1,
                         'is_complete': True
                     }
                     yield f"data: {json.dumps(final_event)}\n\n".encode('utf-8')
@@ -576,7 +580,7 @@ class AnalyzeSolutionView(APIView):
                     }
                     yield f"data: {json.dumps(final_event)}\n\n".encode('utf-8')
 
-                # Return StreamingHttpResponse with SSE headers
+            # Return StreamingHttpResponse with SSE headers
             response = StreamingHttpResponse(
                 stream_with_db_save(),
                 content_type='text/event-stream'
@@ -755,8 +759,38 @@ class GymSolutionView(APIView):
         You are an expert math problem solver. Provide step-by-step solutions in LaTeX format and compare it to the attempt.
         """
         if request.method == 'POST':
+            # Step 1: Validation & Retrieval
             data = request.POST.dict()
-        
+            gym_sesh_id = data.get('gym_sesh_id', '')
+            gym_question_id = data.get('gym_question_id', '')
+            question_number = data.get('question_number', 1)
+
+            if not gym_sesh_id:
+                return Response({'error': 'Gym session not found'}, status=404)
+            if not gym_question_id:
+                return Response({'error': 'Gym question not found'}, status=404)
+            
+            try:
+                gym_sesh = await GymSesh.objects.aget(id=gym_sesh_id)
+                gym_sesh.started_at = timezone.now()
+                gym_sesh.status = GymSesh.Status.ACTIVE
+
+                gym_question = await GymQuestions.objects.aget(id=gym_question_id)
+                if gym_question.is_answered == True:
+                    return Response({'error': 'Question has been answered'})
+
+                gym_question.status = GymQuestions.Status.EVALUATING
+                gym_question.attempt = data['attempt']
+                gym_question.answered_at = timezone.now()
+                gym_question.is_answered = True
+                await gym_question.asave()
+
+            except GymQuestions.DoesNotExist:
+                return redirect('feynman:analysis')
+            except GymSesh.DoesNotExist:
+                return redirect('feynman:analysis')
+            
+            
             prompt_parts = []
 
             prompt_parts.append({'text': 'Solve the following math problem: '})
@@ -770,16 +804,90 @@ class GymSolutionView(APIView):
                 prompt_parts.append({'attempt text': data['attempt']})
             else:
                 return Response({'error': 'Input attempt context'}, status=400)
-            
-            stream_generator = AnalysisStreamGenerator(
-                client=self.client,
-                system_prompt=system_prompt,
-                prompt_parts=prompt_parts,
-                response_schema=GymResponseSchema
-            )
+
+
+            async def stream_with_db_save():
+                """Stream the reponse to the user then save the accumulated result to the database"""
+                accumulated_result = {
+                    'is_correct': None,
+                    'feedback': '',
+                    'solution': '',
+                    'next_question': ''
+                }
+
+                stream_generator = AnalysisStreamGenerator(
+                    client=self.client,
+                    system_prompt=system_prompt,
+                    prompt_parts=prompt_parts,
+                    response_schema=GymResponseSchema
+                )
+
+                async for chunk in stream_generator.generate():
+                    yield chunk
+
+                    try:
+                        chunk_str = chunk.decode('utf-8')
+                        if chunk_str.startswith('data: '):
+                            json_str = chunk_str[6:].strip()
+                            event_data = json.loads(json_str)
+
+                            # Accumulate based on event type
+                            if event_data['type'] == 'partial':
+                                field = event_data['field']
+                                content = event_data['content']
+                                accumulated_result[field] += content
+                            elif event_data['type'] == 'array':
+                                field = event_data['field']
+                                accumulated_result[field] = event_data['content']
+                            elif event_data['type'] == 'boolean':
+                                field = event_data['field']
+                                accumulated_result[field] = event_data['content']
+                            elif event_data['type'] == 'complete':
+                                if isinstance(event_data['content'], dict):
+                                    accumulated_result.update(event_data['content']) # Final update with complete JSON
+
+                    except:
+                        pass
+                    
+                    # Update and save the gym question object
+                    try:
+                        gym_sesh.num_questions += 1
+                        gym_sesh.score += 1 if accumulated_result['is_correct'] == True else 0
+
+                        gym_question.status = GymQuestions.Status.EVALUATED
+                        gym_question.is_correct = accumulated_result.get('is_correct', False)
+                        gym_question.feedback = accumulated_result.get('feedback', '')
+                        gym_question.solution = accumulated_result.get('solution', '')
+                        await gym_question.asave()
+
+                        next_question = await GymQuestions.objects.acreate(
+                            gym_sesh=gym_sesh,
+                            question=accumulated_result.get('next_question', ''),
+                            question_number=question_number + 1
+                        )
+
+                        next_question_id = next_question.id
+                        request.session['next_question_id'] = next_question.id
+
+                        # Send the final event with the necessary ids
+                        final_event = {
+                            'type': 'gym_evaluation_saved',
+                            'gym_sesh_id': gym_sesh_id,
+                            'next_question_id': next_question_id,
+                            'question_number': question_number + 1,
+                            'is_complete': True
+                        }
+                        yield f"data: {json.dumps(final_event)}\n\n".encode('utf-8')
+                    except Exception as e:
+                        final_event = {
+                            'type': 'save_error',
+                            'content': f'Failed to save gym evaluation, {str(e)} occured',
+                            'is_complete': True
+                        }
+                        yield f"data: {json.dumps(final_event)}\n\n".encode('utf-8')
 
             response = StreamingHttpResponse(
-                stream_generator.generate(),
+                stream_with_db_save(),
                 content_type='text/event-stream'
             )
             response['Cache-Control'] = 'no-cache'
