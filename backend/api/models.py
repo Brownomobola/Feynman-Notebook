@@ -157,3 +157,18 @@ class GymQuestions(models.Model):
 
     def __str__(self)-> str:
         return f"Question {self.question_number} for Gym session {self.gym_sesh}"
+    
+    def to_dict(self)-> dict:
+        """Converts the Gym Question to a python dictionary"""
+        return {
+            'id': self.id,
+            'status': self.status,
+            'question': self.question,
+            'question_number': self.question_number,
+            'attempt': self.attempt,
+            'is_correct': self.is_correct,
+            'feedback': self.feedback,
+            'solution': self.solution,
+            'is_answered': self.is_answered,
+            'answered_at': self.is_answered
+        }

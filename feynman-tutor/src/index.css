@@ -1,0 +1,343 @@
+:root {
+  /* Color System - Academic Elegance with Energy */
+  --color-paper: #FDFBF7;
+  --color-ink: #1A1614;
+  --color-ink-light: #524944;
+  --color-accent: #C84630;
+  --color-accent-hover: #A63825;
+  --color-correct: #2D7D4E;
+  --color-incorrect: #C84630;
+  --color-pending: #8B7355;
+  --color-border: #E8E3DD;
+  --color-shadow: rgba(26, 22, 20, 0.08);
+  --color-overlay: rgba(26, 22, 20, 0.7);
+  
+  /* Secondary Palette */
+  --color-highlight: #FFF4E6;
+  --color-muted: #F5F1EB;
+  --color-success-bg: #E8F5ED;
+  --color-error-bg: #FEF0EE;
+  
+  /* Typography */
+  --font-serif: 'Crimson Pro', Georgia, serif;
+  --font-sans: 'DM Sans', -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Courier New', monospace;
+  
+  /* Spacing Scale */
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2.5rem;
+  --space-2xl: 4rem;
+  
+  /* Border Radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 16px;
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 3px var(--color-shadow);
+  --shadow-md: 0 4px 12px var(--color-shadow);
+  --shadow-lg: 0 8px 24px var(--color-shadow);
+  --shadow-focus: 0 0 0 3px rgba(200, 70, 48, 0.15);
+  
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* Typography Styles */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  line-height: 1.2;
+  margin-bottom: var(--space-md);
+}
+
+h1 {
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  letter-spacing: -0.02em;
+}
+
+h2 {
+  font-size: clamp(1.5rem, 4vw, 2.5rem);
+  letter-spacing: -0.01em;
+}
+
+h3 {
+  font-size: clamp(1.25rem, 3vw, 1.875rem);
+}
+
+p {
+  margin-bottom: var(--space-md);
+}
+
+code, pre {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+/* Utility Classes */
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 var(--space-lg);
+}
+
+.text-center {
+  text-align: center;
+}
+
+.text-accent {
+  color: var(--color-accent);
+}
+
+.text-muted {
+  color: var(--color-ink-light);
+}
+
+/* Button Styles */
+button {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-xl);
+  border-radius: var(--radius-md);
+  font-size: 1rem;
+  text-decoration: none;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-primary {
+  background: var(--color-accent);
+  color: white;
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-primary:hover {
+  background: var(--color-accent-hover);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.btn-secondary {
+  background: var(--color-muted);
+  color: var(--color-ink);
+}
+
+.btn-secondary:hover {
+  background: var(--color-border);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--color-ink);
+  border: 2px solid var(--color-border);
+}
+
+.btn-ghost:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+/* Input Styles */
+input, textarea {
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  padding: var(--space-md);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: white;
+  color: var(--color-ink);
+  transition: all var(--transition-base);
+  width: 100%;
+}
+
+input:focus, textarea:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-focus);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 120px;
+  font-family: var(--font-mono);
+}
+
+/* Card Styles */
+.card {
+  background: white;
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--color-border);
+  transition: all var(--transition-base);
+}
+
+.card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-4px);
+}
+
+/* Loading States */
+.loading {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Status Badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.badge-correct {
+  background: var(--color-success-bg);
+  color: var(--color-correct);
+}
+
+.badge-incorrect {
+  background: var(--color-error-bg);
+  color: var(--color-incorrect);
+}
+
+.badge-pending {
+  background: var(--color-muted);
+  color: var(--color-pending);
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in {
+  animation: fadeIn var(--transition-slow) ease-out;
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.slide-in-right {
+  animation: slideInRight var(--transition-slow) ease-out;
+}
+
+/* Math Display */
+.math-display {
+  background: var(--color-highlight);
+  padding: var(--space-lg);
+  border-radius: var(--radius-md);
+  border-left: 4px solid var(--color-accent);
+  margin: var(--space-lg) 0;
+  overflow-x: auto;
+}
+
+/* Decorative Elements */
+.decorative-line {
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--color-accent), transparent);
+  margin: var(--space-xl) 0;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  :root {
+    --space-xl: 2rem;
+    --space-2xl: 3rem;
+  }
+  
+  .container {
+    padding: 0 var(--space-md);
+  }
+  
+  .btn {
+    padding: var(--space-sm) var(--space-lg);
+  }
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-muted);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-ink-light);
+}
+
+/* KaTeX Overrides */
+.katex {
+  font-size: 1.1em;
+}
+
+.katex-display {
+  margin: var(--space-lg) 0;
+}

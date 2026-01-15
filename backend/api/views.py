@@ -777,7 +777,7 @@ class GymSolutionView(APIView):
 
                 gym_question = await GymQuestions.objects.aget(id=gym_question_id)
                 if gym_question.is_answered == True:
-                    return Response({'error': 'Question has been answered'})
+                    return Response({'error': 'Question has been answered'}, status=400)
 
                 gym_question.status = GymQuestions.Status.EVALUATING
                 gym_question.attempt = data['attempt']
@@ -896,3 +896,24 @@ class GymSolutionView(APIView):
 
             return response
         
+        # GET request - Display the current question
+        gym_sesh_id = request.session['gym_sesh_id']
+        if not gym_sesh_id:
+            return Response({'error': 'Could not find the Gym Session'}, status=404)
+        
+        gym_question_id = request.session['gym_question_id']
+        if not gym_question_id:
+            return Response({'error': 'Could not find the Gym Question'}, status=404)
+
+        try:
+            gym_sesh = await GymSesh.objects.aget(id=gym_sesh_id)
+            gym_question = await GymQuestions.objects.aget(id=gym_question_id)
+            if gym_question.is_answered:
+                return Response({'error': 'Question has been answered'}, status=400)
+
+            return Response(gym_question.to_dict(), status = 200)
+        except GymSesh.DoesNotExist:
+            return redirect('feynman:analysis')
+        except GymQuestions.DoesNotExist:
+            return redirect('feynman:analysis')
+            
