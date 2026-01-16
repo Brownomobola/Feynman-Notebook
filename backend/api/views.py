@@ -8,13 +8,15 @@ from google import genai
 from io import BytesIO
 import base64
 from PIL import Image, ImageEnhance
-from backend.backend.settings import GEMINI_API_KEY
+from django.conf import settings
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 import json
 import re
 from django.utils import timezone
 from .models import AnalysisTranscript, GymTranscript, Analysis, GymSesh, GymQuestions
+
+GEMINI_API_KEY = settings.GEMINI_API_KEY
 
 class ImageTranscriber:
     """

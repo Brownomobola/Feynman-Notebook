@@ -48,7 +48,7 @@ class Analysis(models.Model):
         indexes = [
             models.Index(fields=['-created_at']),
             models.Index(fields=['title']),
-            models.Index(fields=['title, -created_at'])
+            models.Index(fields=['title', '-created_at'])
         ]
 
     def __str__(self)-> str:
@@ -79,7 +79,7 @@ class GymSesh(models.Model):
     analysis = models.ForeignKey(
         Analysis,
         on_delete=models.CASCADE,
-        related_name="Gym analyses",
+        related_name="Gym_analyses",
         help_text="The analysis the gym session belongs to"
     )
     status = models.CharField(max_length=20, 
@@ -151,7 +151,7 @@ class GymQuestions(models.Model):
         verbose_name_plural = 'Gym Questions'
         indexes = [
             models.Index(fields=['is_correct']),
-            models.Index(fields=['gym_sesh', 'is_correct'])
+            models.Index(fields=['gym_sesh', 'is_correct']),
             models.Index(fields=['status', 'gym_sesh'])
         ]
 
