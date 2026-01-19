@@ -247,7 +247,7 @@ class ChatStreamGenerator:
             
             # Stream the response
             response = await self.client.aio.models.generate_content_stream(
-                model="gemini-2.0-flash-exp",
+                model="gemini-2.5-flash",
                 config={
                     'system_instruction': self.system_prompt
                 },

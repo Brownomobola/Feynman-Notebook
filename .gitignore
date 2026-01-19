@@ -7,3 +7,6 @@ db.sqlite3
 __pycache__/
 *.pyc
 *.py.old
+
+# Ignore Django migrations directories
+*/migrations/

@@ -34,16 +34,35 @@ const Analysis = () => {
     startStream();
 
     try {
+      // Create the promises (requests) but do not await them individually yet
+      const problemTranscriptionPromise = apiService.transcribe(
+        { dataImage: problemImage.image, 
+          dataText: problemText,
+          isQuestion: true},
+        'analysis'
+      );
+
+      const attemptTranscriptionPromise = apiService.transcribe(
+        { dataImage: attemptImage.image, 
+          dataText: attemptText,
+          isQuestion: false},
+        'analysis'
+      );
+
+      // Await both transcriptions together
+      const [problemTranscription, attemptTranscription] = await Promise.all([
+        problemTranscriptionPromise,
+        attemptTranscriptionPromise
+      ]);
+
+      // Only proceed to create analysis after transcription is done
       await apiService.createAnalysis(
         {
-          problemImage: problemImage.image,
-          problemText,
-          attemptImage: attemptImage.image,
-          attemptText,
+          transcribedProblemText: problemTranscription,
+          transcribedAttemptText: attemptTranscription,
         },
         (data) => {
           handleChunk(data);
-          
           // Check for analysis_saved event
           if (data.type === 'analysis_saved') {
             setAnalysisId(data.analysis_id);

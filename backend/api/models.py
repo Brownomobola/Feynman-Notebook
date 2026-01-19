@@ -3,7 +3,7 @@ from django.db import models
 
 class AnalysisTranscript(models.Model):
     """Store the transcribed images from the analysis"""
-    image_obj = models.ImageField(null=True, help_text="The image that was transcribed")
+    image_obj = models.ImageField(null=True, upload_to="Analysis/%Y-%m-%d %H:%M", help_text="The image that was transcribed")
     text_obj = models.TextField(help_text="The text that was inputted")
     is_question = models.BooleanField(null=True, help_text="Whether the text is a question or solution")
     transcript = models.TextField(help_text="The transcribed text from the image")
@@ -18,7 +18,7 @@ class AnalysisTranscript(models.Model):
     
 class GymTranscript(models.Model):
     """Stores the transcribed images from the gym analysis"""
-    image_obj = models.ImageField(null=True, help_text="The image that was transcribed")
+    image_obj = models.ImageField(null=True, upload_to="Gym/%Y-%m-%d %H:%M", help_text="The image that was transcribed")
     text_obj = models.TextField(help_text="The text that was inputted")
     transcript = models.TextField(help_text="The transcribed text from the image")
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the transcription was created")

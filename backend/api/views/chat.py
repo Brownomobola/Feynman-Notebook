@@ -1,5 +1,5 @@
 from rest_framework.parsers import MultiPartParser, FormParser
-from rest_framework.views import APIView
+from adrf.views import APIView
 from rest_framework.response import Response
 from django.conf import settings
 from django.http import StreamingHttpResponse

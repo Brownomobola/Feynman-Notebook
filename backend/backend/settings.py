@@ -23,10 +23,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-5_7w6_63x+_+4b$ytdd&$x^4@r0ds#k-%!2n@d&glez*v)$tol'
+SECRET_KEY = os.getenv('DJANGO_SECRET')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DEBUG', default=False)
 
 ALLOWED_HOSTS = []
 
@@ -34,6 +34,7 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -75,6 +76,8 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'backend.wsgi.application'
 
+ASGI_APPLICATION = 'backend.asgi.application'
+
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
@@ -93,6 +96,19 @@ DATABASES = {
     }
 }
 
+
+# Session Configuration
+SESSION_ENGINE = 'django.contrib.sessions.backends.db'  # Database-backed sessions
+
+# Session Settings
+SESSION_COOKIE_AGE = 86400 * 30  # 30 days in seconds
+SESSION_SAVE_EVERY_REQUEST = False  # Only save when session is modified
+SESSION_COOKIE_HTTPONLY = True  # Can't be accessed via JavaScript (security)
+SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
+SESSION_COOKIE_SAMESITE = 'Lax'  # CSRF protection
+
+# Optional: Session cookie name
+SESSION_COOKIE_NAME = 'feynman_sessionid'
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators

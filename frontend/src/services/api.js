@@ -34,9 +34,23 @@ class APIService {
   }
 
   // Transcribe an image or text
-  async transcribe(formData, type = 'analysis') {
-    const endpoint = type === 'gym' ? '/gym/transcribe/' : '/transcribe/';
-    
+  async transcribe(Data, type = 'analysis') {
+    const endpoint = type === 'gym' ? '/gym/transcribe/' : '/analysis/transcribe/';
+    const formData = new FormData();
+
+    if (Data.dataImage) {
+      formData.append('data_image', Data.dataImage);
+    }
+    if (Data.dataText) {
+      formData.append('data_text', Data.dataText);
+    }
+    // Add is_question if type is 'analysis' and there is a question
+    if (type === 'analysis') {
+      if (Data.isQuestion) {
+        formData.append('is_question', 'True');
+      };
+    }
+
     const response = await fetch(`${this.baseURL}${endpoint}`, {
       method: 'POST',
       body: formData,
@@ -53,18 +67,12 @@ class APIService {
   // Create analysis with SSE streaming
   async createAnalysis(problemData, onChunk) {
     const formData = new FormData();
-    
-    if (problemData.problemImage) {
-      formData.append('problem_image', problemData.problemImage);
+
+    if (problemData.transcribedProblemText) {
+      formData.append('problem', problemData.transcribedProblemText);
     }
-    if (problemData.problemText) {
-      formData.append('problem_text', problemData.problemText);
-    }
-    if (problemData.attemptImage) {
-      formData.append('attempt_image', problemData.attemptImage);
-    }
-    if (problemData.attemptText) {
-      formData.append('attempt_text', problemData.attemptText);
+    if (problemData.transcribedAttemptText) {
+      formData.append('attempt', problemData.transcribedAttemptText);
     }
 
     const response = await fetch(`${this.baseURL}/analysis/`, {
@@ -104,7 +112,7 @@ class APIService {
 
   // Get all analyses
   async getAnalyses() {
-    return this.request('/analyses/');
+    return this.request('/analysis/');
   }
 
   // Get single analysis
