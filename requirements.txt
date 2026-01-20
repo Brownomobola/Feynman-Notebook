@@ -7,3 +7,4 @@ djangorestframework==3.16.1
 psycopg2==2.9.11
 psycopg2-binary==2.9.11
 daphne==4.2.1
+adrf==0.1.12
