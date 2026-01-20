@@ -1,20 +1,19 @@
 from rest_framework.response import Response
 from adrf.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
-from django.http import HttpResponse
 from django.conf import settings
 from google import genai
 from ..services import ImageTranscriber
 from ..models import AnalysisTranscript
 
-GEMINI_API_KEY = settings.GEMINI_API_KEY
+FEYNMAN_GEMINI_API_KEY = settings.FEYNMAN_GEMINI_API_KEY
 
 
 class TranscribeAnalysisImageView(APIView):
     parser_classes = (MultiPartParser, FormParser)
-    client = genai.Client(api_key=GEMINI_API_KEY)
+    client = genai.Client(api_key=FEYNMAN_GEMINI_API_KEY)
 
-    async def post(self, request, enhance: bool = True, *args, **kwargs) -> HttpResponse | Response:
+    async def post(self, request, enhance: bool = True, *args, **kwargs) -> Response:
         """
         Transcribes handwritten math from an uploaded image.
 
@@ -47,7 +46,7 @@ class TranscribeAnalysisImageView(APIView):
 
             request.session['analysis_transcript'] = analysis_transcript.id
 
-            return HttpResponse(result)
+            return Response(result)
         except ValueError as e:
             return Response({'error': str(e)}, status=400)
         except Exception as e:

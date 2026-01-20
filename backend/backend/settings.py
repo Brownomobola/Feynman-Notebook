@@ -13,10 +13,12 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
-
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load .env file from the same directory as settings.py
+env_path = Path(__file__).resolve().parent / '.env'
+load_dotenv(dotenv_path=env_path)
 
 
 # Quick-start development settings - unsuitable for production
@@ -150,4 +152,4 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
 ]
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+FEYNMAN_GEMINI_API_KEY = os.getenv("FEYNMAN_GEMINI_API_KEY")

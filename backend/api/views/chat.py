@@ -6,7 +6,7 @@ from django.http import StreamingHttpResponse
 from google import genai
 from ..services import ChatStreamGenerator
 
-GEMINI_API_KEY = settings.GEMINI_API_KEY
+FEYNMAN_GEMINI_API_KEY = settings.FEYNMAN_GEMINI_API_KEY
 
 class ChatView(APIView):
     """
@@ -14,7 +14,7 @@ class ChatView(APIView):
     Can incorporate analysis history for context-aware responses.
     """
     parser_classes = (MultiPartParser, FormParser)
-    client = genai.Client(api_key=GEMINI_API_KEY)
+    client = genai.Client(api_key=FEYNMAN_GEMINI_API_KEY)
     
     async def chat(self, data, *args, **kwargs):
         """

@@ -10,12 +10,12 @@ from ..services import StreamGenerator
 from ..models import Analysis, GymQuestions, GymSesh
 from ..schemas import AnalysisResponseSchema 
 
-GEMINI_API_KEY = settings.GEMINI_API_KEY
+FEYNMAN_GEMINI_API_KEY = settings.FEYNMAN_GEMINI_API_KEY
 
 
 class AnalyzeSolutionView(APIView):
     parser_classes = (MultiPartParser, FormParser)
-    client = genai.Client(api_key=GEMINI_API_KEY)
+    client = genai.Client(api_key=FEYNMAN_GEMINI_API_KEY)
 
     async def post(self, request, *args, **kwargs):
         """Handles all POST request sent from the Analysis page"""
@@ -93,7 +93,7 @@ class AnalyzeSolutionView(APIView):
                 try:
                     chunk_str = chunk.decode('utf-8')
                     if chunk_str.startswith('data: '):
-                        json_str = chunk_str.strip()
+                        json_str = chunk_str[6:].strip()
                         event_data = json.loads(json_str)
 
                         if event_data['type'] == 'partial':

@@ -7,11 +7,11 @@ from typing import Optional
 from ..services import ImageTranscriber
 from ..models import GymTranscript
 
-GEMINI_API_KEY = settings.GEMINI_API_KEY
+FEYNMAN_GEMINI_API_KEY = settings.FEYNMAN_GEMINI_API_KEY
 
 class TranscribeGymImageView(APIView):
     parser_classes = (MultiPartParser, FormParser)
-    client = genai.Client(api_key=GEMINI_API_KEY)
+    client = genai.Client(api_key=FEYNMAN_GEMINI_API_KEY)
 
 
     async def post(self, request, enhance: bool = True, *args, **kwargs) -> Optional[str] | Response:
