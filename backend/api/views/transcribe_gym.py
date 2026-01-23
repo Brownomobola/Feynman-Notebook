@@ -14,7 +14,7 @@ class TranscribeGymImageView(APIView):
     client = genai.Client(api_key=FEYNMAN_GEMINI_API_KEY)
 
 
-    async def post(self, request, enhance: bool = True, *args, **kwargs) -> Optional[str] | Response:
+    async def post(self, request, enhance: bool = True, *args, **kwargs) -> Response:
             """
             Transcribes handwritten math from an uploaded image.
             
@@ -26,8 +26,8 @@ class TranscribeGymImageView(APIView):
                 Transcribed text in LaTeX/Markdown format, or error Response
             """
             # Get image and text from request
-            image_file = request.FILES.get('image')
-            text_fallback = request.POST.get('text', '')
+            image_file = request.FILES.get('data_image')
+            text_fallback = request.POST.get('data_text', '')
             
             # Create transcriber instance
             transcriber = ImageTranscriber(client=self.client)
