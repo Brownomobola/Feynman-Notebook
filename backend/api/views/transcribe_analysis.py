@@ -3,7 +3,7 @@ from adrf.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.conf import settings
 from google import genai
-from ..services import ImageTranscriber
+from ..services import ImageTranscriber, get_gemini_client
 from ..models import AnalysisTranscript
 
 FEYNMAN_GEMINI_API_KEY = settings.FEYNMAN_GEMINI_API_KEY
@@ -11,7 +11,6 @@ FEYNMAN_GEMINI_API_KEY = settings.FEYNMAN_GEMINI_API_KEY
 
 class TranscribeAnalysisImageView(APIView):
     parser_classes = (MultiPartParser, FormParser)
-    client = genai.Client(api_key=FEYNMAN_GEMINI_API_KEY)
 
     async def post(self, request, enhance: bool = True, *args, **kwargs) -> Response:
         """
@@ -24,11 +23,13 @@ class TranscribeAnalysisImageView(APIView):
         Returns:
             Transcribed text in LaTeX/Markdown format, or error Response
         """
+        # Get shared client instance
+        client = get_gemini_client()
         image_file = request.FILES.get('data_image')
         text_fallback = request.POST.get('data_text', '')
         is_question = 'is_question' in request.POST
 
-        transcriber = ImageTranscriber(client=self.client)
+        transcriber = ImageTranscriber(client=client)
 
         try:
             result = await transcriber.transcribe(

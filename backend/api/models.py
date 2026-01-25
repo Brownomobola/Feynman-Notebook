@@ -67,7 +67,39 @@ class Analysis(models.Model):
             'explanation': self.explanation,
             'created_at': self.created_at.isoformat()
         }
-    
+
+class Chat(models.Model):
+    """Stores each chat message and links it to the correct analysis"""
+    class Role(models.TextChoices):
+        USER = 'user', 'User'
+        MODEL = 'model', 'Model'
+
+    analysis = models.ForeignKey(
+        Analysis,
+        on_delete=models.CASCADE,
+        related_name="Chats",
+        help_text="The analysis the chat belongs to"
+    )
+    role = models.CharField(
+        choices=Role.choices,
+        max_length=10,
+        help_text="The role of the message sender"
+    )
+    content = models.TextField(help_text="The content of the chat message")
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the chat message was created")
+
+    class Meta:
+        ordering = ['created_at']
+        verbose_name = 'Chat Message'
+        verbose_name_plural = 'Chat Messages'
+        indexes = [
+            models.Index(fields=['analysis', 'created_at']),
+            models.Index(fields=['role']),
+        ]
+
+    def __str__(self) -> str:
+        return f"Chat Message {self.id} - Role: {self.role} - created at {self.created_at.strftime('%Y-%m-%d %H:%M')}"
+
 class GymSesh(models.Model):
     """Store the gym result and parameter"""
     class Status(models.TextChoices):

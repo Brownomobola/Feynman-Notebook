@@ -9,9 +9,11 @@ This package contains logic and utilities services:
 
 from .streaming import ChatStreamGenerator, StreamGenerator
 from .transcription import ImageTranscriber
+from .gemini_client import get_gemini_client
 
 __all__ = [
     'ChatStreamGenerator',
     'ImageTranscriber',
-    'StreamGenerator'
+    'StreamGenerator',
+    'get_gemini_client'
 ]

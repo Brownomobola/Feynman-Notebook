@@ -187,6 +187,55 @@ class APIService {
       body: JSON.stringify({ gym_sesh_id: gymSeshId }),
     });
   }
+
+  // Get chat history for an analysis
+  async getChatHistory(analysisId) {
+    return this.request(`/chat/?analysis_id=${analysisId}`);
+  }
+
+  // Send chat message with SSE streaming
+  async sendChatMessage(analysisId, message, onChunk) {
+    const response = await fetch(`${this.baseURL}/chat/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        analysis_id: analysisId,
+        message: message,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'Chat request failed');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            onChunk(data);
+          } catch (e) {
+            console.error('Failed to parse SSE data:', e);
+          }
+        }
+      }
+    }
+  }
 }
 
 export default new APIService();

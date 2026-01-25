@@ -16,6 +16,7 @@ const Gym = () => {
   const [loading, setLoading] = useState(true);
   const [attemptText, setAttemptText] = useState('');
   const [sessionComplete, setSessionComplete] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   const { streamData, isStreaming, isComplete, handleChunk, startStream, reset } = useSSEStream();
   const { gymSession, currentQuestion, questionHistory, initializeSession, moveToNextQuestion, updateScore } = useGymSession();
@@ -50,8 +51,9 @@ const Gym = () => {
   };
 
   const handleSubmitAttempt = async () => {
-    if (!attemptText.trim() || !currentQuestion || !gymSession) return;
+    if (!attemptText.trim() || !currentQuestion || !gymSession || isSubmitting) return;
 
+    setIsSubmitting(true);
     startStream();
 
     try {
@@ -89,6 +91,9 @@ const Gym = () => {
       );
     } catch (err) {
       console.error('Failed to submit solution:', err);
+      setIsSubmitting(false);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 

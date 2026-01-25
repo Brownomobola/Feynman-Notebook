@@ -6,7 +6,7 @@ from django.http import StreamingHttpResponse
 from django.conf import settings
 from django.shortcuts import redirect
 import json
-from ..services import StreamGenerator
+from ..services import StreamGenerator, get_gemini_client
 from ..models import Analysis, GymQuestions, GymSesh
 from ..schemas import AnalysisResponseSchema 
 
@@ -15,10 +15,12 @@ FEYNMAN_GEMINI_API_KEY = settings.FEYNMAN_GEMINI_API_KEY
 
 class AnalyzeSolutionView(APIView):
     parser_classes = (MultiPartParser, FormParser)
-    client = genai.Client(api_key=FEYNMAN_GEMINI_API_KEY)
 
     async def post(self, request, *args, **kwargs):
         """Handles all POST request sent from the Analysis page"""
+        
+        # Get shared client instance
+        client = get_gemini_client()
 
         # The Feynman Prompt (The "Secret Sauce")
         system_prompt = """
@@ -80,7 +82,7 @@ class AnalyzeSolutionView(APIView):
             }
 
             stream_generator = StreamGenerator(
-                client=self.client,
+                client=client,
                 system_prompt=system_prompt,
                 prompt_parts=prompt_parts,
                 response_schema=AnalysisResponseSchema

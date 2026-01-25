@@ -1,10 +1,12 @@
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from adrf.views import APIView
 from rest_framework.response import Response
 from django.conf import settings
 from django.http import StreamingHttpResponse
 from google import genai
-from ..services import ChatStreamGenerator
+import json
+from ..models import Chat, Analysis
+from ..services import ChatStreamGenerator, get_gemini_client
 
 FEYNMAN_GEMINI_API_KEY = settings.FEYNMAN_GEMINI_API_KEY
 
@@ -13,36 +15,57 @@ class ChatView(APIView):
     Handles conversational chat interactions with the AI tutor.
     Can incorporate analysis history for context-aware responses.
     """
-    parser_classes = (MultiPartParser, FormParser)
-    client = genai.Client(api_key=FEYNMAN_GEMINI_API_KEY)
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
     
-    async def chat(self, data, *args, **kwargs):
+    async def post(self, request, *args, **kwargs):
         """
         Streams a conversational response based on the user's message and conversation history.
         
-        Args:
-            data: Dictionary containing:
-                - message: The user's current message (required)
-                - history: List of previous conversation messages (optional)
-                - analysis_context: Previous analysis result for context (optional)
-                - system_prompt: Custom system prompt (optional)
+        Request body:
+            - message: The user's current message (required)
+            - analysis_id: ID of the analysis for context (required)
         
         Returns:
             StreamingHttpResponse with SSE formatted chat messages
         """
+        # Get shared client instance
+        client = get_gemini_client()
+        
+        # Parse data from request
+        if request.content_type and 'application/json' in request.content_type:
+            data = request.data
+        else:
+            data = request.POST.dict()
+        
         # Validate user message
         user_message = data.get('message')
         if not user_message:
             return Response({'error': 'Message is required'}, status=400)
         
-        # Get conversation history (default to empty list)
-        conversation_history = data.get('history', [])
+        # Get analysis_id (required for context and DB storage)
+        analysis_id = data.get('analysis_id')
+        if not analysis_id:
+            return Response({'error': 'analysis_id is required'}, status=400)
         
-        # Get optional analysis context
-        analysis_context = data.get('analysis_context')
+        request.session['analysis_id'] = analysis_id
         
-        # Build system prompt
-        base_system_prompt = """
+        # Fetch the analysis for context
+        try:
+            analysis = await Analysis.objects.aget(id=analysis_id)
+        except Analysis.DoesNotExist:
+            return Response({'error': 'Analysis not found'}, status=404)
+        
+        # Load conversation history from database
+        chat_messages = Chat.objects.filter(analysis_id=analysis_id).order_by('created_at')
+        conversation_history = []
+        async for msg in chat_messages:
+            conversation_history.append({
+                'role': msg.role,
+                'content': msg.content
+            })
+        
+        # Build system prompt with analysis context
+        system_prompt = f"""
         <role>
         You are the "Feynman Engineering Tutor." Your goal is to help students understand concepts deeply through the Socratic method.
         Use real-world analogies and guide students to discover answers themselves rather than simply providing solutions.
@@ -63,49 +86,101 @@ class ChatView(APIView):
         - Connect new concepts to things the student already understands
         - Encourage critical thinking with "why" and "what if" questions
         </guidelines>
-        """
-        
-        # Add analysis context if provided
-        if analysis_context:
-            context_prompt = f"""
         
         <previous_analysis>
         You previously analyzed this student's work with the following context:
-        Problem: {analysis_context.get('problem', 'N/A')}
-        Student Attempt: {analysis_context.get('attempt', 'N/A')}
+        Problem: {analysis.problem}
+        Student Attempt: {analysis.attempt}
         
         Your previous analysis:
-        Title: {analysis_context.get('title', 'N/A')}
-        Tags: {', '.join(analysis_context.get('tags', []))}
-        Diagnosis: {analysis_context.get('diagnosis', 'N/A')}
-        Explanation: {analysis_context.get('explanation', 'N/A')}
+        Title: {analysis.title}
+        Tags: {', '.join(analysis.tags) if analysis.tags else 'N/A'}
+        Praise: {analysis.praise}
+        Diagnosis: {analysis.diagnosis}
+        Explanation: {analysis.explanation}
         
         Use this context to provide more relevant and personalized guidance.
         </previous_analysis>
         """
-            system_prompt = base_system_prompt + context_prompt
-        else:
-            system_prompt = base_system_prompt
         
-        # Allow custom system prompt override
-        if data.get('system_prompt'):
-            system_prompt = data['system_prompt']
-        
-        # Create chat stream generator
-        chat_generator = ChatStreamGenerator(
-            client=self.client,
-            system_prompt=system_prompt,
-            conversation_history=conversation_history,
-            user_message=user_message
+        # Save the user message to the database first
+        await Chat.objects.acreate(
+            analysis=analysis,
+            role=Chat.Role.USER,
+            content=user_message
         )
+        
+        async def stream_with_db_save():
+            """Async generator for streaming chat and saving to database"""
+            accumulated_response = ""
+
+            # Create chat stream generator
+            chat_generator = ChatStreamGenerator(
+                client=client,
+                system_prompt=system_prompt,
+                conversation_history=conversation_history,
+                user_message=user_message
+            )
+
+            async for chunk in chat_generator.generate():
+                yield chunk
+                
+                # Parse chunk to accumulate the response
+                try:
+                    chunk_str = chunk.decode('utf-8')
+                    if chunk_str.startswith('data: '):
+                        json_str = chunk_str[6:].strip()
+                        event_data = json.loads(json_str)
+                        
+                        if event_data['type'] == 'text':
+                            accumulated_response += event_data['content']
+                        elif event_data['type'] == 'complete':
+                            # Save the complete AI response to the database
+                            await Chat.objects.acreate(
+                                analysis=analysis,
+                                role=Chat.Role.MODEL,
+                                content=accumulated_response
+                            )
+                except Exception:
+                    pass
         
         # Return streaming response
         response = StreamingHttpResponse(
-            chat_generator.generate(),
+            stream_with_db_save(),
             content_type='text/event-stream'
         )
         response['Cache-Control'] = 'no-cache'
         response['X-Accel-Buffering'] = 'no'
-        response['Access-Control-Allow-Origin'] = '*'  # Adjust for your CORS policy when releasing for production
+        response['Access-Control-Allow-Origin'] = '*'
         
         return response
+    
+    async def get(self, request, *args, **kwargs):
+        """
+        Retrieves all chat messages for a given analysis.
+        
+        Query params:
+            - analysis_id: ID of the analysis (required)
+        
+        Returns:
+            List of chat messages
+        """
+        analysis_id = request.GET.get('analysis_id')
+        if not analysis_id:
+            return Response({'error': 'analysis_id is required'}, status=400)
+        
+        # Fetch all chat messages for this analysis
+        chat_messages = Chat.objects.filter(analysis_id=analysis_id).order_by('created_at')
+        messages = []
+        async for msg in chat_messages:
+            messages.append({
+                'id': msg.id,
+                'role': msg.role,
+                'content': msg.content,
+                'created_at': msg.created_at.isoformat()
+            })
+        
+        return Response({
+            'analysis_id': analysis_id,
+            'messages': messages
+        })

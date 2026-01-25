@@ -8,7 +8,7 @@ from django.shortcuts import redirect
 from django.http import StreamingHttpResponse
 import json
 from ..schemas import GymResponseSchema
-from ..services import StreamGenerator
+from ..services import StreamGenerator, get_gemini_client
 from ..models import GymQuestions, GymSesh
 
 
@@ -18,12 +18,14 @@ FEYNMAN_GEMINI_API_KEY=settings.FEYNMAN_GEMINI_API_KEY
 
 class GymSolutionView(APIView):
     parser_classes = (MultiPartParser, FormParser)
-    client = genai.Client(api_key=FEYNMAN_GEMINI_API_KEY)
 
 
 
     async def post(self, request, *args, **kwargs):
         """"IHandles the POST requests from the gym page"""
+        
+        # Get shared client instance
+        client = get_gemini_client()
         system_prompt = """
         You are an expert math problem solver. Provide step-by-step solutions in LaTeX format and compare it to the attempt.
         """
@@ -85,7 +87,7 @@ class GymSolutionView(APIView):
             }
 
             stream_generator = StreamGenerator(
-                client=self.client,
+                client=client,
                 system_prompt=system_prompt,
                 prompt_parts=prompt_parts,
                 response_schema=GymResponseSchema

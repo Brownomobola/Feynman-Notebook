@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, FileText, CheckCircle, ArrowRight, Dumbbell } from 'lucide-react';
+import { Upload, FileText, CheckCircle, ArrowRight, Dumbbell, Send, MessageCircle, User, Bot } from 'lucide-react';
 import Button from '../components/Button';
 import Card from '../components/Card';
 import ImageUpload from '../components/ImageUpload';
 import StreamingText from '../components/StreamingText';
+import MathDisplay from '../components/MathDisplay';
 import { useImageUpload, useSSEStream } from '../hooks';
 import apiService from '../services/api';
 
@@ -23,13 +24,96 @@ const Analysis = () => {
   // Analysis state
   const [currentStep, setCurrentStep] = useState('input'); // input, analyzing, results
   const [analysisId, setAnalysisId] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { streamData, isStreaming, isComplete, error, handleChunk, startStream, reset } = useSSEStream();
 
-  const canSubmit = (problemImage.image || problemText) && (attemptImage.image || attemptText);
+  // Chat state
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [isChatStreaming, setIsChatStreaming] = useState(false);
+  const [streamingMessage, setStreamingMessage] = useState('');
+  const chatContainerRef = useRef(null);
+  const chatInputRef = useRef(null);
+
+  // Auto-scroll chat to bottom
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [chatMessages, streamingMessage]);
+
+  // Load chat history when analysis is complete
+  useEffect(() => {
+    if (analysisId && isComplete) {
+      loadChatHistory();
+    }
+  }, [analysisId, isComplete]);
+
+  const loadChatHistory = async () => {
+    try {
+      const response = await apiService.getChatHistory(analysisId);
+      setChatMessages(response.messages || []);
+    } catch (err) {
+      console.error('Failed to load chat history:', err);
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (!chatInput.trim() || isChatStreaming || !analysisId) return;
+
+    const userMessage = chatInput.trim();
+    setChatInput('');
+    setIsChatStreaming(true);
+    setStreamingMessage('');
+
+    // Optimistically add user message to UI
+    setChatMessages(prev => [...prev, {
+      id: Date.now(),
+      role: 'user',
+      content: userMessage,
+      created_at: new Date().toISOString()
+    }]);
+
+    try {
+      await apiService.sendChatMessage(analysisId, userMessage, (data) => {
+        if (data.type === 'text') {
+          setStreamingMessage(prev => prev + data.content);
+        } else if (data.type === 'complete') {
+          // Add the complete AI message
+          setChatMessages(prev => [...prev, {
+            id: Date.now() + 1,
+            role: 'model',
+            content: data.content,
+            created_at: new Date().toISOString()
+          }]);
+          setStreamingMessage('');
+          setIsChatStreaming(false);
+        } else if (data.type === 'error') {
+          console.error('Chat error:', data.content);
+          setIsChatStreaming(false);
+          setStreamingMessage('');
+        }
+      });
+    } catch (err) {
+      console.error('Chat failed:', err);
+      setIsChatStreaming(false);
+      setStreamingMessage('');
+    }
+  };
+
+  const handleChatKeyPress = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
+
+  const canSubmit = (problemImage.image || problemText) && (attemptImage.image || attemptText) && !isSubmitting && !isStreaming;
 
   const handleSubmit = async () => {
-    if (!canSubmit) return;
+    if (!canSubmit || isSubmitting) return;
 
+    setIsSubmitting(true);
     setCurrentStep('analyzing');
     startStream();
 
@@ -72,6 +156,10 @@ const Analysis = () => {
       );
     } catch (err) {
       console.error('Analysis failed:', err);
+      setIsSubmitting(false);
+      setCurrentStep('input');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -89,6 +177,10 @@ const Analysis = () => {
     setAttemptText('');
     setAnalysisId(null);
     reset();
+    // Reset chat state
+    setChatMessages([]);
+    setChatInput('');
+    setStreamingMessage('');
   };
 
   return (
@@ -220,7 +312,8 @@ const Analysis = () => {
                     size="lg"
                     onClick={handleSubmit}
                     disabled={!canSubmit}
-                    icon={<ArrowRight size={20} />}
+                    loading={isSubmitting || isStreaming}
+                    icon={!isSubmitting && !isStreaming ? <ArrowRight size={20} /> : null}
                   >
                     Analyze My Work
                   </Button>
@@ -476,6 +569,152 @@ const Analysis = () => {
                     onClick={handleNewAnalysis}
                   >
                     New Analysis
+                  </Button>
+                </div>
+              </Card>
+
+              {/* Chat Section */}
+              <Card className="mt-8">
+                <div className="flex items-center gap-3 mb-6">
+                  <div 
+                    className="p-2 rounded-lg"
+                    style={{ backgroundColor: 'var(--color-highlight)' }}
+                  >
+                    <MessageCircle size={24} style={{ color: 'var(--color-accent)' }} />
+                  </div>
+                  <h2 
+                    className="text-2xl font-semibold"
+                    style={{ 
+                      fontFamily: 'var(--font-serif)',
+                      color: 'var(--color-ink)'
+                    }}
+                  >
+                    Chat with Feynman Tutor
+                  </h2>
+                </div>
+
+                <p 
+                  className="text-sm mb-4"
+                  style={{ color: 'var(--color-ink-light)' }}
+                >
+                  Ask questions about the problem, your mistakes, or the concepts involved
+                </p>
+
+                {/* Chat Messages Container */}
+                <div 
+                  ref={chatContainerRef}
+                  className="rounded-lg p-4 mb-4 overflow-y-auto"
+                  style={{ 
+                    backgroundColor: 'var(--color-paper)',
+                    border: '1px solid var(--color-border)',
+                    minHeight: '200px',
+                    maxHeight: '400px'
+                  }}
+                >
+                  {chatMessages.length === 0 && !streamingMessage && (
+                    <div 
+                      className="text-center py-8"
+                      style={{ color: 'var(--color-ink-light)' }}
+                    >
+                      <MessageCircle size={40} className="mx-auto mb-3 opacity-50" />
+                      <p>No messages yet. Start a conversation!</p>
+                    </div>
+                  )}
+
+                  {chatMessages.map((message, index) => (
+                    <div
+                      key={message.id || index}
+                      className={`flex gap-3 mb-4 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}
+                    >
+                      {/* Avatar */}
+                      <div 
+                        className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center"
+                        style={{ 
+                          backgroundColor: message.role === 'user' 
+                            ? 'var(--color-accent)' 
+                            : 'var(--color-highlight)'
+                        }}
+                      >
+                        {message.role === 'user' ? (
+                          <User size={16} style={{ color: 'white' }} />
+                        ) : (
+                          <Bot size={16} style={{ color: 'var(--color-accent)' }} />
+                        )}
+                      </div>
+
+                      {/* Message Bubble */}
+                      <div 
+                        className={`max-w-[80%] p-3 rounded-lg ${
+                          message.role === 'user' ? 'rounded-tr-sm' : 'rounded-tl-sm'
+                        }`}
+                        style={{ 
+                          backgroundColor: message.role === 'user' 
+                            ? 'var(--color-accent)' 
+                            : 'var(--color-highlight)',
+                          color: message.role === 'user' 
+                            ? 'white' 
+                            : 'var(--color-ink)'
+                        }}
+                      >
+                        {message.role === 'user' ? (
+                          <p className="whitespace-pre-wrap">{message.content}</p>
+                        ) : (
+                          <MathDisplay content={message.content} />
+                        )}
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Streaming Message */}
+                  {streamingMessage && (
+                    <div className="flex gap-3 mb-4">
+                      <div 
+                        className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center"
+                        style={{ backgroundColor: 'var(--color-highlight)' }}
+                      >
+                        <Bot size={16} style={{ color: 'var(--color-accent)' }} />
+                      </div>
+                      <div 
+                        className="max-w-[80%] p-3 rounded-lg rounded-tl-sm"
+                        style={{ 
+                          backgroundColor: 'var(--color-highlight)',
+                          color: 'var(--color-ink)'
+                        }}
+                      >
+                        <MathDisplay content={streamingMessage} />
+                        <span 
+                          className="inline-block w-2 h-4 ml-1 animate-pulse"
+                          style={{ backgroundColor: 'var(--color-accent)' }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Chat Input */}
+                <div className="flex gap-3">
+                  <textarea
+                    ref={chatInputRef}
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyPress={handleChatKeyPress}
+                    placeholder="Ask a question about this problem..."
+                    className="flex-1 resize-none"
+                    rows={2}
+                    disabled={isChatStreaming}
+                    style={{
+                      opacity: isChatStreaming ? 0.6 : 1
+                    }}
+                  />
+                  <Button
+                    variant="primary"
+                    onClick={handleSendMessage}
+                    disabled={!chatInput.trim() || isChatStreaming}
+                    loading={isChatStreaming}
+                    icon={!isChatStreaming ? <Send size={18} /> : null}
+                    style={{ alignSelf: 'flex-end' }}
+                  >
+                    Send
                   </Button>
                 </div>
               </Card>

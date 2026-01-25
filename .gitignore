@@ -1,4 +1,5 @@
 test.py
+test2.py
 *.jpeg
 *.jpg
 feynman-frontend
@@ -43,3 +44,4 @@ dist-ssr
 
 # Build files
 build/
+*.sh

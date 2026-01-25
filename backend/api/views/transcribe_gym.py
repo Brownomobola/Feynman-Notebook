@@ -4,14 +4,13 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from django.conf import settings
 from google import genai
 from typing import Optional
-from ..services import ImageTranscriber
+from ..services import ImageTranscriber, get_gemini_client
 from ..models import GymTranscript
 
 FEYNMAN_GEMINI_API_KEY = settings.FEYNMAN_GEMINI_API_KEY
 
 class TranscribeGymImageView(APIView):
     parser_classes = (MultiPartParser, FormParser)
-    client = genai.Client(api_key=FEYNMAN_GEMINI_API_KEY)
 
 
     async def post(self, request, enhance: bool = True, *args, **kwargs) -> Response:
@@ -25,12 +24,15 @@ class TranscribeGymImageView(APIView):
             Returns:
                 Transcribed text in LaTeX/Markdown format, or error Response
             """
+            # Get shared client instance
+            client = get_gemini_client()
+            
             # Get image and text from request
             image_file = request.FILES.get('data_image')
             text_fallback = request.POST.get('data_text', '')
             
             # Create transcriber instance
-            transcriber = ImageTranscriber(client=self.client)
+            transcriber = ImageTranscriber(client=client)
             
             try:
                 result = await transcriber.transcribe(
