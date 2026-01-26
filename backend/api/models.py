@@ -1,8 +1,25 @@
 from typing import Any
 from django.db import models
+from django.contrib.auth.models import User
+
 
 class AnalysisTranscript(models.Model):
     """Store the transcribed images from the analysis"""
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="analysis_transcripts",
+        help_text="The user who created this transcript (null for anonymous)"
+    )
+    session_key = models.CharField(
+        max_length=40,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Session key for anonymous users"
+    )
     image_obj = models.ImageField(null=True, upload_to="Analysis/%Y-%m-%d %H:%M", help_text="The image that was transcribed")
     text_obj = models.TextField(help_text="The text that was inputted")
     is_question = models.BooleanField(null=True, help_text="Whether the text is a question or solution")
@@ -12,12 +29,31 @@ class AnalysisTranscript(models.Model):
     class Meta:
         ordering = ['-created_at']
         verbose_name_plural = "Analysis Transcripts"
+        indexes = [
+            models.Index(fields=['user', '-created_at']),
+            models.Index(fields=['session_key', '-created_at']),
+        ]
 
     def __str__(self) -> str:
         return f"Transcript {self.id} - Question: {self.is_question}"
     
 class GymTranscript(models.Model):
     """Stores the transcribed images from the gym analysis"""
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="gym_transcripts",
+        help_text="The user who created this transcript (null for anonymous)"
+    )
+    session_key = models.CharField(
+        max_length=40,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Session key for anonymous users"
+    )
     image_obj = models.ImageField(null=True, upload_to="Gym/%Y-%m-%d %H:%M", help_text="The image that was transcribed")
     text_obj = models.TextField(help_text="The text that was inputted")
     transcript = models.TextField(help_text="The transcribed text from the image")
@@ -25,13 +61,32 @@ class GymTranscript(models.Model):
 
     class Meta:
         ordering = ['-created_at']
-        verbose_name_plural = "Analysis Transcripts"
+        verbose_name_plural = "Gym Transcripts"
+        indexes = [
+            models.Index(fields=['user', '-created_at']),
+            models.Index(fields=['session_key', '-created_at']),
+        ]
 
     def __str__(self) -> str:
         return f"Transcript {self.id} - created at {self.created_at.strftime('%Y-%m-%d %H:%M')}"
     
 class Analysis(models.Model):
     """Stores the analysis result and parameters"""
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="analyses",
+        help_text="The user who created this analysis (null for anonymous)"
+    )
+    session_key = models.CharField(
+        max_length=40,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Session key for anonymous users"
+    )
     problem = models.TextField(help_text="The problem context")
     attempt = models.TextField(help_text="The attempt context")
     title = models.CharField(max_length=250, blank=True, help_text="The title of the analysis")
@@ -48,7 +103,9 @@ class Analysis(models.Model):
         indexes = [
             models.Index(fields=['-created_at']),
             models.Index(fields=['title']),
-            models.Index(fields=['title', '-created_at'])
+            models.Index(fields=['title', '-created_at']),
+            models.Index(fields=['user', '-created_at']),
+            models.Index(fields=['session_key', '-created_at']),
         ]
 
     def __str__(self)-> str:
@@ -74,6 +131,21 @@ class Chat(models.Model):
         USER = 'user', 'User'
         MODEL = 'model', 'Model'
 
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="chat_messages",
+        help_text="The user who sent this message (null for anonymous)"
+    )
+    session_key = models.CharField(
+        max_length=40,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Session key for anonymous users"
+    )
     analysis = models.ForeignKey(
         Analysis,
         on_delete=models.CASCADE,
@@ -95,6 +167,8 @@ class Chat(models.Model):
         indexes = [
             models.Index(fields=['analysis', 'created_at']),
             models.Index(fields=['role']),
+            models.Index(fields=['user', 'created_at']),
+            models.Index(fields=['session_key', 'created_at']),
         ]
 
     def __str__(self) -> str:
@@ -108,6 +182,21 @@ class GymSesh(models.Model):
         COMPLETED = 'completed', 'Completed'
         ABANDONED = 'abandoned', 'Abandoned'
 
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="gym_sessions",
+        help_text="The user who created this gym session (null for anonymous)"
+    )
+    session_key = models.CharField(
+        max_length=40,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Session key for anonymous users"
+    )
     analysis = models.ForeignKey(
         Analysis,
         on_delete=models.CASCADE,
@@ -133,8 +222,10 @@ class GymSesh(models.Model):
         indexes = [
             models.Index(fields=['-created_at']),
             models.Index(fields=['analysis', '-created_at']),
-            models.Index(fields=['analysis', 'status'])
-            ]
+            models.Index(fields=['analysis', 'status']),
+            models.Index(fields=['user', '-created_at']),
+            models.Index(fields=['session_key', '-created_at']),
+        ]
 
     def __str__(self) -> str:
         return f"Gym session {self.id} - created at {self.created_at.strftime('%Y-%m-%d %H:%M')}"

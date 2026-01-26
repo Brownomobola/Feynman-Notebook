@@ -5,6 +5,37 @@ from pydantic import BaseModel
 from typing import List, Dict, Any
 
 
+def unescape_json_string(s: str) -> str:
+    r"""
+    Properly unescape a JSON string value.
+    Handles all JSON escape sequences: \", \\, \/, \b, \f, \n, \r, \t, \uXXXX
+    """
+    # Handle escaped backslash first (must be before other escapes)
+    s = s.replace('\\\\', '\x00BACKSLASH\x00')  # Temporary placeholder
+    
+    # Handle standard JSON escape sequences
+    s = s.replace('\\"', '"')
+    s = s.replace('\\n', '\n')
+    s = s.replace('\\t', '\t')
+    s = s.replace('\\r', '\r')
+    s = s.replace('\\/', '/')
+    s = s.replace('\\b', '\b')
+    s = s.replace('\\f', '\f')
+    
+    # Restore backslashes (now single backslashes)
+    s = s.replace('\x00BACKSLASH\x00', '\\')
+    
+    # Handle unicode escapes like \uXXXX
+    try:
+        def replace_unicode(match):
+            return chr(int(match.group(1), 16))
+        s = re.sub(r'\\u([0-9a-fA-F]{4})', replace_unicode, s)
+    except Exception:
+        pass
+    
+    return s
+
+
 class StreamGenerator:
     """
     Handles streaming of AI analysis responses in Server-Sent Events (SSE) format.
@@ -83,10 +114,8 @@ class StreamGenerator:
                         
                         if match:
                             current_value = match.group(1)
-                            # Unescape JSON strings
-                            current_value = current_value.replace('\\"', '"')
-                            current_value = current_value.replace('\\n', '\n')
-                            current_value = current_value.replace('\\t', '\t')
+                            # Unescape JSON strings properly
+                            current_value = unescape_json_string(current_value)
                             
                             # Get only new content for this field
                             last_pos = field_positions[field_name]
@@ -136,9 +165,9 @@ class StreamGenerator:
                                 items = re.findall(r'"([^"]*(?:\\"[^"]*)*)"', array_content)
                                 
                                 if items:
-                                    # Unescape items
+                                    # Unescape items properly
                                     unescaped_items = [
-                                        item.replace('\\"', '"').replace('\\n', '\n')
+                                        unescape_json_string(item)
                                         for item in items
                                     ]
                                     

@@ -8,7 +8,8 @@ from django.shortcuts import redirect
 import json
 from ..services import StreamGenerator, get_gemini_client
 from ..models import Analysis, GymQuestions, GymSesh
-from ..schemas import AnalysisResponseSchema 
+from ..schemas import AnalysisResponseSchema
+from .auth import get_user_session_info, filter_by_owner
 
 FEYNMAN_GEMINI_API_KEY = settings.FEYNMAN_GEMINI_API_KEY
 
@@ -21,6 +22,9 @@ class AnalyzeSolutionView(APIView):
         
         # Get shared client instance
         client = get_gemini_client()
+        
+        # Get user/session info for ownership
+        owner_info = get_user_session_info(request)
 
         # The Feynman Prompt (The "Secret Sauce")
         system_prompt = """
@@ -61,8 +65,10 @@ class AnalyzeSolutionView(APIView):
         else:
             return Response({'error': 'Input attempt context'}, status=400)
 
-        # Create the analysis object in the database
+        # Create the analysis object in the database with user/session ownership
         analysis = await Analysis.objects.acreate(
+            user=owner_info['user'],
+            session_key=owner_info['session_key'],
             problem=data['problem'],
             attempt=data['attempt']
         )
@@ -124,6 +130,8 @@ class AnalyzeSolutionView(APIView):
                 await analysis.asave()
 
                 gym_sesh = await GymSesh.objects.acreate(
+                    user=owner_info['user'],
+                    session_key=owner_info['session_key'],
                     analysis=analysis,
                     status=GymSesh.Status.PENDING
                 )

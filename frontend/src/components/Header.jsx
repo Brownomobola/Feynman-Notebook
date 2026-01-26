@@ -1,9 +1,12 @@
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Brain, BookOpen, Dumbbell, History } from 'lucide-react';
+import { Brain, BookOpen, Dumbbell, History, LogIn, LogOut, User } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 const Header = () => {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, isAuthenticated, isLoading, logout } = useAuth();
 
   const navItems = [
     { path: '/', label: 'Home', icon: Brain },
@@ -12,6 +15,11 @@ const Header = () => {
   ];
 
   const isActive = (path) => location.pathname === path;
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/');
+  };
 
   return (
     <header 
@@ -87,6 +95,56 @@ const Header = () => {
                 </Link>
               );
             })}
+
+            {/* Auth Section */}
+            <div className="ml-4 pl-4 border-l flex items-center gap-2" style={{ borderColor: 'var(--color-border)' }}>
+              {isLoading ? (
+                <span className="text-sm" style={{ color: 'var(--color-ink-light)' }}>...</span>
+              ) : isAuthenticated ? (
+                <>
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg" style={{ backgroundColor: 'var(--color-highlight)' }}>
+                    <User size={16} style={{ color: 'var(--color-accent)' }} />
+                    <span className="text-sm font-medium" style={{ color: 'var(--color-ink)' }}>
+                      {user?.username}
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleLogout}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors hover:opacity-80"
+                    style={{ 
+                      color: 'var(--color-ink-light)'
+                    }}
+                  >
+                    <LogOut size={16} />
+                    <span className="text-sm">Logout</span>
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Link
+                    to="/login"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors"
+                    style={{ 
+                      color: 'var(--color-ink)',
+                      backgroundColor: isActive('/login') ? 'var(--color-highlight)' : 'transparent'
+                    }}
+                  >
+                    <LogIn size={16} />
+                    <span className="text-sm">Login</span>
+                  </Link>
+                  <Link
+                    to="/register"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors"
+                    style={{ 
+                      color: 'white',
+                      backgroundColor: 'var(--color-accent)'
+                    }}
+                  >
+                    <span className="text-sm">Sign Up</span>
+                  </Link>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </nav>

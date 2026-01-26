@@ -7,6 +7,7 @@ from google import genai
 import json
 from ..models import Chat, Analysis
 from ..services import ChatStreamGenerator, get_gemini_client
+from .auth import get_user_session_info, filter_by_owner
 
 FEYNMAN_GEMINI_API_KEY = settings.FEYNMAN_GEMINI_API_KEY
 
@@ -31,6 +32,9 @@ class ChatView(APIView):
         # Get shared client instance
         client = get_gemini_client()
         
+        # Get user/session info for ownership
+        owner_info = get_user_session_info(request)
+        
         # Parse data from request
         if request.content_type and 'application/json' in request.content_type:
             data = request.data
@@ -49,9 +53,16 @@ class ChatView(APIView):
         
         request.session['analysis_id'] = analysis_id
         
-        # Fetch the analysis for context
+        # Fetch the analysis for context (and verify ownership)
         try:
             analysis = await Analysis.objects.aget(id=analysis_id)
+            # Verify ownership
+            if owner_info['user']:
+                if analysis.user != owner_info['user']:
+                    return Response({'error': 'Access denied'}, status=403)
+            elif owner_info['session_key']:
+                if analysis.session_key != owner_info['session_key']:
+                    return Response({'error': 'Access denied'}, status=403)
         except Analysis.DoesNotExist:
             return Response({'error': 'Analysis not found'}, status=404)
         
@@ -105,6 +116,8 @@ class ChatView(APIView):
         
         # Save the user message to the database first
         await Chat.objects.acreate(
+            user=owner_info['user'],
+            session_key=owner_info['session_key'],
             analysis=analysis,
             role=Chat.Role.USER,
             content=user_message
@@ -137,6 +150,8 @@ class ChatView(APIView):
                         elif event_data['type'] == 'complete':
                             # Save the complete AI response to the database
                             await Chat.objects.acreate(
+                                user=owner_info['user'],
+                                session_key=owner_info['session_key'],
                                 analysis=analysis,
                                 role=Chat.Role.MODEL,
                                 content=accumulated_response
@@ -165,9 +180,24 @@ class ChatView(APIView):
         Returns:
             List of chat messages
         """
+        # Get user/session info for ownership verification
+        owner_info = get_user_session_info(request)
+        
         analysis_id = request.GET.get('analysis_id')
         if not analysis_id:
             return Response({'error': 'analysis_id is required'}, status=400)
+        
+        # Verify analysis ownership
+        try:
+            analysis = await Analysis.objects.aget(id=analysis_id)
+            if owner_info['user']:
+                if analysis.user != owner_info['user']:
+                    return Response({'error': 'Access denied'}, status=403)
+            elif owner_info['session_key']:
+                if analysis.session_key != owner_info['session_key']:
+                    return Response({'error': 'Access denied'}, status=403)
+        except Analysis.DoesNotExist:
+            return Response({'error': 'Analysis not found'}, status=404)
         
         # Fetch all chat messages for this analysis
         chat_messages = Chat.objects.filter(analysis_id=analysis_id).order_by('created_at')

@@ -1,6 +1,23 @@
 // API Service for backend communication
+// Prefer env-based base URL; fallback to Vite dev proxy '/api'
+const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || '/api';
 
-const API_BASE_URL = '/api';
+// Get CSRF token from cookie
+function getCSRFToken() {
+  const name = 'csrftoken';
+  let cookieValue = null;
+  if (document.cookie && document.cookie !== '') {
+    const cookies = document.cookie.split(';');
+    for (let i = 0; i < cookies.length; i++) {
+      const cookie = cookies[i].trim();
+      if (cookie.substring(0, name.length + 1) === (name + '=')) {
+        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+        break;
+      }
+    }
+  }
+  return cookieValue;
+}
 
 class APIService {
   constructor() {
@@ -10,9 +27,13 @@ class APIService {
   // Helper method for handling fetch requests
   async request(endpoint, options = {}) {
     const url = `${this.baseURL}${endpoint}`;
+    const csrfToken = getCSRFToken();
+    
     const config = {
+      credentials: 'include', // Include cookies for session auth
       headers: {
         'Content-Type': 'application/json',
+        ...(csrfToken && { 'X-CSRFToken': csrfToken }),
         ...options.headers,
       },
       ...options,
@@ -32,6 +53,48 @@ class APIService {
       throw error;
     }
   }
+
+  // ============ Auth Methods ============
+  
+  // Get CSRF token (call on app init)
+  async getCSRFToken() {
+    return this.request('/auth/csrf/');
+  }
+
+  // Get current user info
+  async getMe() {
+    return this.request('/auth/me/');
+  }
+
+  // Register new user
+  async register(username, email, password, passwordConfirm) {
+    return this.request('/auth/register/', {
+      method: 'POST',
+      body: JSON.stringify({
+        username,
+        email,
+        password,
+        password_confirm: passwordConfirm
+      }),
+    });
+  }
+
+  // Login
+  async login(username, password) {
+    return this.request('/auth/login/', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    });
+  }
+
+  // Logout
+  async logout() {
+    return this.request('/auth/logout/', {
+      method: 'POST',
+    });
+  }
+
+  // ============ Existing Methods ============
 
   // Transcribe an image or text
   async transcribe(Data, type = 'analysis') {
@@ -53,6 +116,7 @@ class APIService {
 
     const response = await fetch(`${this.baseURL}${endpoint}`, {
       method: 'POST',
+      credentials: 'include',
       body: formData,
     });
 
@@ -77,6 +141,7 @@ class APIService {
 
     const response = await fetch(`${this.baseURL}/analysis/`, {
       method: 'POST',
+      credentials: 'include',
       body: formData,
     });
 
@@ -147,6 +212,7 @@ class APIService {
 
     const response = await fetch(`${this.baseURL}/gym/solution/`, {
       method: 'POST',
+      credentials: 'include',
       body: formData,
     });
 
@@ -197,6 +263,7 @@ class APIService {
   async sendChatMessage(analysisId, message, onChunk) {
     const response = await fetch(`${this.baseURL}/chat/`, {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
       },

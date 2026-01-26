@@ -148,8 +148,17 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+# CORS Configuration
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
 ]
+CORS_ALLOW_CREDENTIALS = True  # Allow cookies to be sent with cross-origin requests
+
+# CSRF Configuration for cross-origin requests
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:5173",
+]
+CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_HTTPONLY = False  # Allow JS to read CSRF token
 
 FEYNMAN_GEMINI_API_KEY = os.getenv("FEYNMAN_GEMINI_API_KEY")
