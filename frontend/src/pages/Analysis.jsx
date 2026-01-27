@@ -24,6 +24,7 @@ const Analysis = () => {
   // Analysis state
   const [currentStep, setCurrentStep] = useState('input'); // input, analyzing, results
   const [analysisId, setAnalysisId] = useState(null);
+  const [gymSeshId, setGymSeshId] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { streamData, isStreaming, isComplete, error, handleChunk, startStream, reset } = useSSEStream();
 
@@ -150,6 +151,7 @@ const Analysis = () => {
           // Check for analysis_saved event
           if (data.type === 'analysis_saved') {
             setAnalysisId(data.analysis_id);
+            setGymSeshId(data.gym_sesh_id);
             setCurrentStep('results');
           }
         }
@@ -164,8 +166,8 @@ const Analysis = () => {
   };
 
   const handleStartGym = () => {
-    if (analysisId) {
-      navigate(`/gym/${analysisId}`);
+    if (analysisId && gymSeshId) {
+      navigate(`/gym/${analysisId}/${gymSeshId}`);
     }
   };
 

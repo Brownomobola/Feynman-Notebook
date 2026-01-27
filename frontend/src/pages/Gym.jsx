@@ -10,7 +10,7 @@ import { useSSEStream, useGymSession } from '../hooks';
 import apiService from '../services/api';
 
 const Gym = () => {
-  const { analysisId } = useParams();
+  const { analysisId, gymSeshId } = useParams();
   const navigate = useNavigate();
   
   const [loading, setLoading] = useState(true);
@@ -28,7 +28,7 @@ const Gym = () => {
   const initializeGymSession = async () => {
     try {
       setLoading(true);
-      const session = await apiService.createGymSession(analysisId, 5);
+      const session = await apiService.getGymSession(analysisId, gymSeshId, 1);
       const firstQuestion = {
         id: session.first_question_id,
         question: session.first_question,
@@ -36,7 +36,7 @@ const Gym = () => {
       };
       initializeSession(
         {
-          id: session.gym_sesh_id,
+          id: gymSeshId,
           score: 0,
           num_questions: 0,
           status: 'active'

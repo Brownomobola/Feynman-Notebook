@@ -2,10 +2,9 @@ from rest_framework.response import Response
 from adrf.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.conf import settings
-from google import genai
-from typing import Optional
 from ..services import ImageTranscriber, get_gemini_client
 from ..models import GymTranscript
+from .auth import get_user_session_info
 
 FEYNMAN_GEMINI_API_KEY = settings.FEYNMAN_GEMINI_API_KEY
 
@@ -31,6 +30,9 @@ class TranscribeGymImageView(APIView):
             image_file = request.FILES.get('data_image')
             text_fallback = request.POST.get('data_text', '')
             
+            # Get owner info
+            owner_info = get_user_session_info(request)
+
             # Create transcriber instance
             transcriber = ImageTranscriber(client=client)
             
@@ -42,14 +44,16 @@ class TranscribeGymImageView(APIView):
                 )
 
                 gym_transcript = await GymTranscript.objects.acreate(
-                image_obj=image_file,
-                text_obj=text_fallback,
-                transcript = result
+                    user=owner_info['info'],
+                    session_key=owner_info['session_key'],
+                    image_obj=image_file,
+                    text_obj=text_fallback,
+                    transcript = result
                 )
 
                 request.session['gym_transcript'] = gym_transcript.id
 
-                return Response(result)
+                return Response(result, status=200)
             except ValueError as e:
                 return Response({'error': str(e)}, status=400)
             except Exception as e:

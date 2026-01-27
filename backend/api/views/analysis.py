@@ -180,8 +180,14 @@ class AnalyzeSolutionView(APIView):
         if not analysis_id:
             return Response(f"Could not find the analysis", status=404)
 
+        # Get user/session info for ownership verification
+        owner_info = get_user_session_info(request)
+
         try:
-            analysis = await Analysis.objects.aget(id=analysis_id)
+            # Filter by ownership to prevent unauthorized access
+            queryset = Analysis.objects.filter(id=analysis_id)
+            queryset = filter_by_owner(queryset, owner_info)
+            analysis = await queryset.aget()
             return Response(analysis.to_dict(), status=200)
         except Analysis.DoesNotExist:
-            return redirect('feynman:home')
+            return Response({"error": "Analysis not found or access denied"}, status=404)

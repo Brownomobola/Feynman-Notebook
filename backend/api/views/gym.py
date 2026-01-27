@@ -10,9 +10,7 @@ import json
 from ..schemas import GymResponseSchema
 from ..services import StreamGenerator, get_gemini_client
 from ..models import GymQuestions, GymSesh
-
-
-
+from .auth import get_user_session_info, filter_by_owner
 
 FEYNMAN_GEMINI_API_KEY=settings.FEYNMAN_GEMINI_API_KEY
 
@@ -26,6 +24,9 @@ class GymSolutionView(APIView):
         
         # Get shared client instance
         client = get_gemini_client()
+
+        owner_info = get_user_session_info(request)
+
         system_prompt = """
         You are an expert math problem solver. Provide step-by-step solutions in LaTeX format and compare it to the attempt.
         """
@@ -42,14 +43,31 @@ class GymSolutionView(APIView):
             return Response({'error': 'Gym question not found'}, status=404)
         
         try:
-            gym_sesh = await GymSesh.objects.aget(id=gym_sesh_id)
+            # Create queryset to filter the database
+            query_set = GymSesh.objects.filter(id=gym_sesh_id)
+            query_set = filter_by_owner(query_set, owner_info)
+            gym_sesh = await query_set.aget()
+            
+            # Validate ownership
+            if owner_info['user']:
+                if gym_sesh.user != owner_info['user']:
+                    return Response({'error': 'Access denied'}, status=403)
+            elif owner_info['session_key']:
+                if gym_sesh.session_key != owner_info['session_key']:
+                    return Response({'error': 'Access denied'}, status=403)
+            
+            # Update the gym session records
             gym_sesh.started_at = timezone.now()
             gym_sesh.status = GymSesh.Status.ACTIVE
+            
+            # Get the question
+            gym_question = await GymQuestions.objects.aget(gym_sesh=gym_sesh, question_number=question_number)
 
-            gym_question = await GymQuestions.objects.aget(id=gym_question_id)
+            # Check if the question has been answered  
             if gym_question.is_answered == True:
                 return Response({'error': 'Question has been answered'}, status=400)
 
+            # Update the records
             gym_question.status = GymQuestions.Status.EVALUATING
             gym_question.attempt = data['attempt']
             gym_question.answered_at = timezone.now()
@@ -57,9 +75,9 @@ class GymSolutionView(APIView):
             await gym_question.asave()
 
         except GymQuestions.DoesNotExist:
-            return redirect('feynman:analysis')
+            return Response({'error': 'Question does not exist'}, status=404)
         except GymSesh.DoesNotExist:
-            return redirect('feynman:analysis')
+            return Response({'error': 'Gym Session does not exist'}, status=404)
         
         
         prompt_parts = []
@@ -69,14 +87,14 @@ class GymSolutionView(APIView):
         if data.get('problem'):
             prompt_parts.append({'problem text': data['problem']})
         else:
-            return Response({'error': 'No problem context'}, status=500)
+            return Response({'error': 'No problem context'}, status=400)
         
         if data.get('attempt'):
             prompt_parts.append({'attempt text': data['attempt']})
         else:
             return Response({'error': 'Input attempt context'}, status=400)
 
-
+        # Async generator for streaming and saving to the database
         async def stream_with_db_save():
             """Stream the reponse to the user then save the accumulated result to the database"""
             accumulated_result = {
@@ -107,9 +125,6 @@ class GymSolutionView(APIView):
                             field = event_data['field']
                             content = event_data['content']
                             accumulated_result[field] += content
-                        elif event_data['type'] == 'array':
-                            field = event_data['field']
-                            accumulated_result[field] = event_data['content']
                         elif event_data['type'] == 'boolean':
                             field = event_data['field']
                             accumulated_result[field] = event_data['content']
@@ -123,7 +138,7 @@ class GymSolutionView(APIView):
                 # Update and save the gym question object
                 try:
                     gym_sesh.num_questions += 1
-                    gym_sesh.score += 1 if accumulated_result['is_correct'] == True else 0
+                    gym_sesh.score += int(accumulated_result['is_correct'])
 
                     gym_question.status = GymQuestions.Status.EVALUATED
                     gym_question.is_correct = accumulated_result.get('is_correct', False)
@@ -169,20 +184,32 @@ class GymSolutionView(APIView):
     
     async def get(self, request):
         """GET request - Display the current question"""
-        gym_sesh_id = request.session['gym_sesh_id']
+        gym_sesh_id = request.query_params.get('gym_sesh_id')
+        question_num = request.query_params.get('question_num')
         if not gym_sesh_id:
             return Response({'error': 'Could not find the Gym Session'}, status=404)
         
-        gym_question_id = request.session['gym_question_id']
-        if not gym_question_id:
-            return Response({'error': 'Could not find the Gym Question'}, status=404)
+        # Get user/session info for ownership verification
+        owner_info = get_user_session_info(request)
+        
+        # Filter questions through gym_sesh ownership (no need to fetch gym_sesh separately)
+        queryset = GymQuestions.objects.filter(
+            gym_sesh__id=gym_sesh_id,
+            question_number=question_num
+        )
+        
+        # Apply ownership filter through the relationship
+        if owner_info['user']:
+            queryset = queryset.filter(gym_sesh__user=owner_info['user'])
+        else:
+            queryset = queryset.filter(gym_sesh__session_key=owner_info['session_key'])
 
         try:
-            gym_question = await GymQuestions.objects.aget(id=gym_question_id)
+            gym_question = await queryset.aget()
             if gym_question.is_answered:
                 return Response({'error': 'Question has been answered'}, status=400)
 
-            return Response(gym_question.to_dict(), status = 200)
+            return Response(gym_question.to_dict(), status=200)
         
         except GymQuestions.DoesNotExist:
-            return redirect('feynman:analysis')
+            return Response({'error': 'Question not found or access denied'}, status=404)

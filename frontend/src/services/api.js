@@ -186,21 +186,24 @@ class APIService {
   }
 
   // Create gym session
-  async createGymSession(analysisId, numQuestions = 5) {
-    return this.request('/gym/create/', {
-      method: 'POST',
-      body: JSON.stringify({
-        analysis_id: analysisId,
-        num_questions: numQuestions,
-      }),
-    });
-  }
+  //async createGymSession(analysisId, numQuestions = 5) {
+  //  return this.request('/gym/create/', {
+  //    method: 'POST',
+  //    body: JSON.stringify({
+  //      analysis_id: analysisId,
+  //      num_questions: numQuestions,
+  //    }),
+  //  });
+  //} 
 
   // Get gym question
-  async getGymQuestion(gymSeshId, questionId) {
-    return this.request(`/gym/question/?gym_sesh_id=${gymSeshId}&question_id=${questionId}`);
+  //async getGymQuestion(gymSeshId, questionId) {
+  //  return this.request(`/gym/?gym_sesh_id=${gymSeshId}&gym_question_id=${questionId}`);
+  //}
+  // Get gym question, can also be used to start a new session
+  async getGymSession(analysisId, gymSeshId, questionCount) {
+    return this.request(`/gym/?analysis_id=${analysisId}&gym_sesh_id=${gymSeshId}&question_num=${questionCount}`);
   }
-
   // Submit gym solution with SSE streaming
   async submitGymSolution(solutionData, onChunk) {
     const formData = new FormData();
@@ -210,7 +213,7 @@ class APIService {
     formData.append('problem', solutionData.problem);
     formData.append('attempt', solutionData.attempt);
 
-    const response = await fetch(`${this.baseURL}/gym/solution/`, {
+    const response = await fetch(`${this.baseURL}/gym/`, {
       method: 'POST',
       credentials: 'include',
       body: formData,

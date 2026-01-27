@@ -29,5 +29,5 @@ urlpatterns = [
     
     # Gym endpoints
     path('gym/transcribe/', TranscribeGymImageView.as_view(), name='transcribe_gym'),
-    path('gym/submit/', GymSolutionView.as_view(), name='gym_submit'),
+    path('gym/,', GymSolutionView.as_view(), name='gym_submit'),
 ]
