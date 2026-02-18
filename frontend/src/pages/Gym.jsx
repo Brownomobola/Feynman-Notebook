@@ -30,9 +30,10 @@ const Gym = () => {
       setLoading(true);
       const session = await apiService.getGymSession(analysisId, gymSeshId, 1);
       const firstQuestion = {
-        id: session.first_question_id,
-        question: session.first_question,
-        question_number: 1
+        id: session.id,
+        question: session.question,
+        status: session.status,
+        question_number: session.question_number
       };
       initializeSession(
         {

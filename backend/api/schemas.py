@@ -11,7 +11,7 @@ class AnalysisResponseSchema(BaseModel):
 
 class GymResponseSchema(BaseModel):
     """Defines the json response schema for the gym solution"""
-    is_correct: bool = Field(description="Indicates if the attempt is correct")
+    is_correct: bool = Field(description="Indicates if the attempt is correct. Respond 'True' or 'False'")
     feedback: str = Field(description="Feedback on the provided attempt")
     solution: str = Field(description="The step-by-step solution in LaTeX format")
     next_question: str = Field(description="A follow-up question to further challenge the student. Make it harder if is_correct is true, easier if false.")

@@ -1,10 +1,8 @@
 from rest_framework.parsers import MultiPartParser, FormParser
 from adrf.views import APIView
 from rest_framework.response import Response
-from  google import genai
 from django.conf import settings
 from django.utils import timezone
-from django.shortcuts import redirect
 from django.http import StreamingHttpResponse
 import json
 from ..schemas import GymResponseSchema
@@ -12,15 +10,14 @@ from ..services import StreamGenerator, get_gemini_client
 from ..models import GymQuestions, GymSesh
 from .auth import get_user_session_info, filter_by_owner
 
-FEYNMAN_GEMINI_API_KEY=settings.FEYNMAN_GEMINI_API_KEY
+FEYNMAN_GEMINI_API_KEY = settings.FEYNMAN_GEMINI_API_KEY
+
 
 class GymSolutionView(APIView):
     parser_classes = (MultiPartParser, FormParser)
 
-
-
     async def post(self, request, *args, **kwargs):
-        """"IHandles the POST requests from the gym page"""
+        """Handles POST requests from the gym page"""
         
         # Get shared client instance
         client = get_gemini_client()
@@ -35,7 +32,7 @@ class GymSolutionView(APIView):
         data = request.POST.dict()
         gym_sesh_id = data.get('gym_sesh_id', '')
         gym_question_id = data.get('gym_question_id', '')
-        question_number = data.get('question_number', 1)
+        question_number = int(data.get('question_number', 1))
 
         if not gym_sesh_id:
             return Response({'error': 'Gym session not found'}, status=404)
@@ -43,28 +40,22 @@ class GymSolutionView(APIView):
             return Response({'error': 'Gym question not found'}, status=404)
         
         try:
-            # Create queryset to filter the database
+            # Create queryset to filter the database by ownership
             query_set = GymSesh.objects.filter(id=gym_sesh_id)
             query_set = filter_by_owner(query_set, owner_info)
             gym_sesh = await query_set.aget()
             
-            # Validate ownership
-            if owner_info['user']:
-                if gym_sesh.user != owner_info['user']:
-                    return Response({'error': 'Access denied'}, status=403)
-            elif owner_info['session_key']:
-                if gym_sesh.session_key != owner_info['session_key']:
-                    return Response({'error': 'Access denied'}, status=403)
-            
-            # Update the gym session records
-            gym_sesh.started_at = timezone.now()
-            gym_sesh.status = GymSesh.Status.ACTIVE
+            # Update the gym session status if not already active
+            if gym_sesh.status == GymSesh.Status.PENDING:
+                gym_sesh.started_at = timezone.now()
+                gym_sesh.status = GymSesh.Status.ACTIVE
+                await gym_sesh.asave()
             
             # Get the question
             gym_question = await GymQuestions.objects.aget(gym_sesh=gym_sesh, question_number=question_number)
 
             # Check if the question has been answered  
-            if gym_question.is_answered == True:
+            if gym_question.is_answered:
                 return Response({'error': 'Question has been answered'}, status=400)
 
             # Update the records
@@ -79,24 +70,25 @@ class GymSolutionView(APIView):
         except GymSesh.DoesNotExist:
             return Response({'error': 'Gym Session does not exist'}, status=404)
         
-        
         prompt_parts = []
 
         prompt_parts.append({'text': 'Solve the following math problem: '})
 
         if data.get('problem'):
-            prompt_parts.append({'problem text': data['problem']})
+            prompt_parts.append({'text': data['problem']})
         else:
             return Response({'error': 'No problem context'}, status=400)
         
+        prompt_parts.append({'text': 'Here is the student attempt: '})
+
         if data.get('attempt'):
-            prompt_parts.append({'attempt text': data['attempt']})
+            prompt_parts.append({'text': data['attempt']})
         else:
             return Response({'error': 'Input attempt context'}, status=400)
 
         # Async generator for streaming and saving to the database
         async def stream_with_db_save():
-            """Stream the reponse to the user then save the accumulated result to the database"""
+            """Stream the response to the user then save the accumulated result to the database"""
             accumulated_result = {
                 'is_correct': None,
                 'feedback': '',
@@ -111,6 +103,7 @@ class GymSolutionView(APIView):
                 response_schema=GymResponseSchema
             )
 
+            # Stream and accumulate the result
             async for chunk in stream_generator.generate():
                 yield chunk
 
@@ -130,47 +123,47 @@ class GymSolutionView(APIView):
                             accumulated_result[field] = event_data['content']
                         elif event_data['type'] == 'complete':
                             if isinstance(event_data['content'], dict):
-                                accumulated_result.update(event_data['content']) # Final update with complete JSON
-
+                                accumulated_result.update(event_data['content'])
                 except:
                     pass
-                
-                # Update and save the gym question object
-                try:
-                    gym_sesh.num_questions += 1
-                    gym_sesh.score += int(accumulated_result['is_correct'])
 
-                    gym_question.status = GymQuestions.Status.EVALUATED
-                    gym_question.is_correct = accumulated_result.get('is_correct', False)
-                    gym_question.feedback = accumulated_result.get('feedback', '')
-                    gym_question.solution = accumulated_result.get('solution', '')
-                    await gym_question.asave()
+            # Save to the database AFTER streaming is complete
+            try:
+                gym_sesh.num_questions += 1
+                if accumulated_result['is_correct']:
+                    gym_sesh.score += 1
+                await gym_sesh.asave()
 
-                    next_question = await GymQuestions.objects.acreate(
-                        gym_sesh=gym_sesh,
-                        question=accumulated_result.get('next_question', ''),
-                        question_number=question_number + 1
-                    )
+                gym_question.status = GymQuestions.Status.EVALUATED
+                gym_question.is_correct = accumulated_result.get('is_correct', False)
+                gym_question.feedback = accumulated_result.get('feedback', '')
+                gym_question.solution = accumulated_result.get('solution', '')
+                await gym_question.asave()
 
-                    next_question_id = next_question.id
-                    request.session['next_question_id'] = next_question.id
+                next_question = await GymQuestions.objects.acreate(
+                    gym_sesh=gym_sesh,
+                    question=accumulated_result.get('next_question', ''),
+                    question_number=question_number + 1
+                )
 
-                    # Send the final event with the necessary ids
-                    final_event = {
-                        'type': 'gym_evaluation_saved',
-                        'gym_sesh_id': gym_sesh_id,
-                        'next_question_id': next_question_id,
-                        'question_number': question_number + 1,
-                        'is_complete': True
-                    }
-                    yield f"data: {json.dumps(final_event)}\n\n".encode('utf-8')
-                except Exception as e:
-                    final_event = {
-                        'type': 'save_error',
-                        'content': f'Failed to save gym evaluation, {str(e)} occured',
-                        'is_complete': True
-                    }
-                    yield f"data: {json.dumps(final_event)}\n\n".encode('utf-8')
+                request.session['next_question_id'] = next_question.id
+
+                # Send the final event with the necessary ids
+                final_event = {
+                    'type': 'gym_evaluation_saved',
+                    'gym_sesh_id': str(gym_sesh_id),
+                    'next_question_id': next_question.id,
+                    'question_number': question_number + 1,
+                    'is_complete': True
+                }
+                yield f"data: {json.dumps(final_event)}\n\n".encode('utf-8')
+            except Exception as e:
+                final_event = {
+                    'type': 'save_error',
+                    'content': f'Failed to save gym evaluation, {str(e)} occurred',
+                    'is_complete': True
+                }
+                yield f"data: {json.dumps(final_event)}\n\n".encode('utf-8')
 
         response = StreamingHttpResponse(
             stream_with_db_save(),
@@ -178,38 +171,77 @@ class GymSolutionView(APIView):
         )
         response['Cache-Control'] = 'no-cache'
         response['X-Accel-Buffering'] = 'no'
-        response['Access-Control-Allow-Origin'] = '*'  # Adjust for your CORS policy when releasing for production
+        response['Access-Control-Allow-Origin'] = '*'
 
         return response
     
     async def get(self, request):
-        """GET request - Display the current question"""
+        """GET request - Retrieve the current question for a gym session"""
         gym_sesh_id = request.query_params.get('gym_sesh_id')
-        question_num = request.query_params.get('question_num')
-        if not gym_sesh_id:
-            return Response({'error': 'Could not find the Gym Session'}, status=404)
+        analysis_id = request.query_params.get('analysis_id')
+        question_num = int(request.query_params.get('question_num', 1))
+
+        if not gym_sesh_id and not analysis_id:
+            return Response({'error': 'Provide gym_sesh_id or analysis_id'}, status=400)
         
         # Get user/session info for ownership verification
         owner_info = get_user_session_info(request)
         
-        # Filter questions through gym_sesh ownership (no need to fetch gym_sesh separately)
-        queryset = GymQuestions.objects.filter(
-            gym_sesh__id=gym_sesh_id,
-            question_number=question_num
-        )
+        # Build the queryset - support lookup by gym_sesh_id or by analysis_id
+        if gym_sesh_id:
+            queryset = GymQuestions.objects.filter(
+                gym_sesh__id=gym_sesh_id,
+                question_number=question_num
+            )
+        else:
+            # Look up through the analysis relationship
+            queryset = GymQuestions.objects.filter(
+                gym_sesh__analysis__id=analysis_id,
+                question_number=question_num
+            )
         
         # Apply ownership filter through the relationship
         if owner_info['user']:
             queryset = queryset.filter(gym_sesh__user=owner_info['user'])
-        else:
+        elif owner_info['session_key']:
             queryset = queryset.filter(gym_sesh__session_key=owner_info['session_key'])
 
         try:
-            gym_question = await queryset.aget()
-            if gym_question.is_answered:
-                return Response({'error': 'Question has been answered'}, status=400)
-
+            gym_question = await queryset.select_related('gym_sesh').aget()
             return Response(gym_question.to_dict(), status=200)
         
         except GymQuestions.DoesNotExist:
             return Response({'error': 'Question not found or access denied'}, status=404)
+
+
+class GymCompleteView(APIView):
+    """Handles completing a gym session"""
+
+    async def post(self, request, *args, **kwargs):
+        """Mark a gym session as completed"""
+        data = request.data
+        gym_sesh_id = data.get('gym_sesh_id')
+
+        if not gym_sesh_id:
+            return Response({'error': 'gym_sesh_id is required'}, status=400)
+
+        owner_info = get_user_session_info(request)
+
+        try:
+            query_set = GymSesh.objects.filter(id=gym_sesh_id)
+            query_set = filter_by_owner(query_set, owner_info)
+            gym_sesh = await query_set.aget()
+
+            gym_sesh.status = GymSesh.Status.COMPLETED
+            gym_sesh.completed_at = timezone.now()
+            await gym_sesh.asave()
+
+            return Response({
+                'status': 'completed',
+                'score': gym_sesh.score,
+                'num_questions': gym_sesh.num_questions,
+                'percentage': gym_sesh.to_percentage,
+            }, status=200)
+
+        except GymSesh.DoesNotExist:
+            return Response({'error': 'Gym session not found or access denied'}, status=404)

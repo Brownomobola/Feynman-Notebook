@@ -1,10 +1,8 @@
 from adrf.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
-from google import genai
 from django.http import StreamingHttpResponse
 from django.conf import settings
-from django.shortcuts import redirect
 import json
 from ..services import StreamGenerator, get_gemini_client
 from ..models import Analysis, GymQuestions, GymSesh

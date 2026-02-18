@@ -161,7 +161,7 @@ class Chat(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the chat message was created")
 
     class Meta:
-        ordering = ['created_at']
+        ordering = ['-created_at']
         verbose_name = 'Chat Message'
         verbose_name_plural = 'Chat Messages'
         indexes = [
@@ -293,5 +293,5 @@ class GymQuestions(models.Model):
             'feedback': self.feedback,
             'solution': self.solution,
             'is_answered': self.is_answered,
-            'answered_at': self.is_answered
+            'answered_at': self.answered_at.isoformat() if self.answered_at else None
         }

@@ -167,7 +167,7 @@ const Analysis = () => {
 
   const handleStartGym = () => {
     if (analysisId && gymSeshId) {
-      navigate(`/gym/${analysisId}/${gymSeshId}`);
+      navigate(`/gym/${gymSeshId}/${1}`);
     }
   };
 
