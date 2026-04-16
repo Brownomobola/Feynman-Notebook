@@ -32,8 +32,8 @@ const Gym = () => {
       const firstQuestion = {
         id: session.id,
         question: session.question,
-        status: session.status,
-        question_number: session.question_number
+        status: session.status || null,
+        question_number: null
       };
       initializeSession(
         {
@@ -71,7 +71,7 @@ const Gym = () => {
           
           // Handle gym evaluation saved event
           if (data.type === 'gym_evaluation_saved') {
-            updateScore(streamData.is_correct);
+            updateScore(data.is_correct);
             
             if (data.is_complete) {
               // Move to next question

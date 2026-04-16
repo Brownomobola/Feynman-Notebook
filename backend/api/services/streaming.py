@@ -3,6 +3,9 @@ import re
 import json
 from pydantic import BaseModel
 from typing import List, Dict, Any
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def unescape_json_string(s: str) -> str:
@@ -109,28 +112,35 @@ class StreamGenerator:
                     
                     # Extract and stream string fields progressively
                     for field_name in field_positions.keys():
-                        pattern = rf'"{field_name}"\s*:\s*"([^"]*(?:\\"[^"]*)*)'
-                        match = re.search(pattern, accumulated_text)
-                        
-                        if match:
-                            current_value = match.group(1)
-                            # Unescape JSON strings properly
-                            current_value = unescape_json_string(current_value)
+                        try:
+                            pattern = rf'"{field_name}"\s*:\s*"([^"]*(?:\\"[^"]*)*)'
+                            match = re.search(pattern, accumulated_text)
                             
-                            # Get only new content for this field
-                            last_pos = field_positions[field_name]
-                            new_content = current_value[last_pos:]
-                            
-                            if new_content:
-                                # Send SSE formatted data
-                                event_data = {
-                                    'type': 'partial',
-                                    'field': field_name,
-                                    'content': new_content,
-                                    'is_complete': False
-                                }
-                                yield f"data: {json.dumps(event_data)}\n\n".encode('utf-8')
-                                field_positions[field_name] = len(current_value)
+                            if match:
+                                current_value = match.group(1)
+                                # Unescape JSON strings properly
+                                current_value = unescape_json_string(current_value)
+                                
+                                # Get only new content for this field
+                                last_pos = field_positions[field_name]
+                                new_content = current_value[last_pos:]
+                                
+                                if new_content:
+                                    # Send SSE formatted data
+                                    event_data = {
+                                        'type': 'partial',
+                                        'field': field_name,
+                                        'content': new_content,
+                                        'is_complete': False
+                                    }
+                                    yield f"data: {json.dumps(event_data)}\n\n".encode('utf-8')
+                                    field_positions[field_name] = len(current_value)
+                        except Exception as e:
+                            logger.warning(
+                                "Failed to process field %s: %s",
+                                field_name, str(e), exc_info=True
+                            )
+                            continue
                     
                     # Handle boolean fields
                     for field_name in boolean_fields:
@@ -190,7 +200,11 @@ class StreamGenerator:
                     'is_complete': True
                 }
                 yield f"data: {json.dumps(completion_data)}\n\n".encode('utf-8')
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
+                logger.error(
+                    "Failed to parse complete JSON. Error %s. Accumulated text (first 500 chars): %.500s",
+                    str(e), accumulated_text, exc_info=True
+                )
                 # Send accumulated text as fallback
                 completion_data = {
                     'type': 'complete',
@@ -201,6 +215,10 @@ class StreamGenerator:
                 yield f"data: {json.dumps(completion_data)}\n\n".encode('utf-8')
             
         except Exception as e:
+            logger.error(
+                "Stream generator failed during generation. Schema: %s, Error: %s",
+                self.response_schema.__name__, str(e), exc_info=True
+            )
             error_data = {
                 'type': 'error',
                 'field': 'error',
@@ -273,6 +291,10 @@ class ChatStreamGenerator:
         try:
             # Build conversation contents
             contents = self._build_conversation_contents()
+            logger.info(
+            "Starting chat stream. History length: %d messages",
+            len(self.conversation_history)
+            )
             
             # Stream the response
             response = await self.client.aio.models.generate_content_stream(
@@ -280,20 +302,23 @@ class ChatStreamGenerator:
                 config={
                     'system_instruction': self.system_prompt
                 },
-                contents=contents
+                contents=contents #type: ignore
             )
             
             async for chunk in response:
                 if chunk.text:
                     accumulated_text += chunk.text
-                    
-                    # Send the new text chunk
-                    event_data = {
-                        'type': 'text',
-                        'content': chunk.text,
-                        'is_complete': False
-                    }
-                    yield f"data: {json.dumps(event_data)}\n\n".encode('utf-8')
+                    try:
+                        # Send the new text chunk
+                        event_data = {
+                            'type': 'text',
+                            'content': chunk.text,
+                            'is_complete': False
+                        }
+                        yield f"data: {json.dumps(event_data)}\n\n".encode('utf-8')
+                    except Exception as e:
+                        logger.warning("Failed to yield chunk: %s", str(e), exc_info=True)
+                        continue
             
             # Send completion signal
             completion_data = {
@@ -301,6 +326,7 @@ class ChatStreamGenerator:
                 'content': accumulated_text,
                 'is_complete': True
             }
+            logger.info("Chat stream completed. Total chars: %d", len(accumulated_text))
             yield f"data: {json.dumps(completion_data)}\n\n".encode('utf-8')
             
         except Exception as e:
@@ -309,4 +335,8 @@ class ChatStreamGenerator:
                 'content': str(e),
                 'is_complete': True
             }
+            logger.error(
+            "ChatStreamGenerator failed. User message (first 100 chars): %.100s. Error: %s",
+            self.user_message, str(e), exc_info=True
+            )
             yield f"data: {json.dumps(error_data)}\n\n".encode('utf-8')

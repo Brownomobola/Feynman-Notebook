@@ -184,23 +184,24 @@ class APIService {
   async getAnalysis(id) {
     return this.request(`/analysis/${id}/`);
   }
-
+ /*
   // Create gym session
-  //async createGymSession(analysisId, numQuestions = 5) {
-  //  return this.request('/gym/create/', {
-  //    method: 'POST',
-  //    body: JSON.stringify({
-  //      analysis_id: analysisId,
-  //      num_questions: numQuestions,
-  //    }),
-  //  });
-  //} 
+  async createGymSession(analysisId, numQuestions = 5) {
+    return this.request('/gym/create/', {
+      method: 'POST',
+      body: JSON.stringify({
+        analysis_id: analysisId,
+        num_questions: numQuestions,
+      }),
+    });
+  } 
 
   // Get gym question
-  //async getGymQuestion(gymSeshId, questionId) {
-  //  return this.request(`/gym/?gym_sesh_id=${gymSeshId}&gym_question_id=${questionId}`);
-  //}
-  
+  async getGymQuestion(gymSeshId, questionId) {
+    return this.request(`/gym/?gym_sesh_id=${gymSeshId}&gym_question_id=${questionId}`);
+  }
+  */
+ 
   // Get gym question, can also be used to start a new session
   async getGymSession(analysisId, gymSeshId, questionCount) {
     return this.request(`/gym/?analysis_id=${analysisId}&gym_sesh_id=${gymSeshId}&question_num=${questionCount}`);
@@ -254,6 +255,7 @@ class APIService {
   async completeGymSession(gymSeshId) {
     return this.request('/gym/complete/', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ gym_sesh_id: gymSeshId }),
     });
   }

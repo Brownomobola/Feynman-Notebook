@@ -5,6 +5,9 @@ from django.conf import settings
 from ..services import ImageTranscriber, get_gemini_client
 from ..models import AnalysisTranscript
 from .auth import get_user_session_info
+import logging
+
+logger = logging.getLogger(__name__)
 
 FEYNMAN_GEMINI_API_KEY = settings.FEYNMAN_GEMINI_API_KEY
 
@@ -32,16 +35,20 @@ class TranscribeAnalysisImageView(APIView):
         is_question = 'is_question' in request.POST
 
         # Get owner info
+        
         owner_info = get_user_session_info(request)
 
         transcriber = ImageTranscriber(client=client)
 
         try:
-            result = await transcriber.transcribe(
-                image_file=image_file,
-                text_fallback=text_fallback,
-                enhance=enhance
-            )
+            if image_file:
+                result = await transcriber.transcribe(
+                    image_file=image_file,
+                    text_fallback=text_fallback,
+                    enhance=enhance
+                )
+            else:
+                result = text_fallback
 
             analysis_transcript = await AnalysisTranscript.objects.acreate(
                 user=owner_info['user'],

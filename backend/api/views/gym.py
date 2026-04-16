@@ -212,6 +212,8 @@ class GymSolutionView(APIView):
         
         except GymQuestions.DoesNotExist:
             return Response({'error': 'Question not found or access denied'}, status=404)
+        except Exception as e:
+            return Response({'error': f'Error {str(e)} occured'}, status=400)
 
 
 class GymCompleteView(APIView):

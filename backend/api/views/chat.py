@@ -3,11 +3,10 @@ from adrf.views import APIView
 from rest_framework.response import Response
 from django.conf import settings
 from django.http import StreamingHttpResponse
-from google import genai
 import json
 from ..models import Chat, Analysis
 from ..services import ChatStreamGenerator, get_gemini_client
-from .auth import get_user_session_info, filter_by_owner
+from .auth import get_user_session_info
 
 FEYNMAN_GEMINI_API_KEY = settings.FEYNMAN_GEMINI_API_KEY
 
