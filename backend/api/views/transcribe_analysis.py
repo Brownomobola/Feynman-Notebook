@@ -35,8 +35,9 @@ class TranscribeAnalysisImageView(APIView):
         is_question = 'is_question' in request.POST
 
         # Get owner info
-        
+
         owner_info = get_user_session_info(request)
+        logger.info("Got user info")
 
         transcriber = ImageTranscriber(client=client)
 
@@ -63,6 +64,9 @@ class TranscribeAnalysisImageView(APIView):
 
             return Response(result, status=200)
         except ValueError as e:
+            logger.error("An Value error %s occured", str(e), exc_info=True)
             return Response({'error': str(e)}, status=400)
         except Exception as e:
+            logger.error("An error occured during transcription. Error: %s",
+                         str(e), exc_info=True)
             return Response({'error': str(e)}, status=500)

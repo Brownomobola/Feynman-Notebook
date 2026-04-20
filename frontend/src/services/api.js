@@ -54,6 +54,13 @@ class APIService {
     }
   }
 
+  // Helper method for CSRF Token
+  _csrfHeaders() {
+    const token = getCSRFToken();
+    return token ? { 'X-CSRFToken': token } : {};
+  }
+
+
   // ============ Auth Methods ============
   
   // Get CSRF token (call on app init)
@@ -117,6 +124,9 @@ class APIService {
     const response = await fetch(`${this.baseURL}${endpoint}`, {
       method: 'POST',
       credentials: 'include',
+      headers: {
+        ...this._csrfHeaders(),
+      },
       body: formData,
     });
 
@@ -142,6 +152,9 @@ class APIService {
     const response = await fetch(`${this.baseURL}/analysis/`, {
       method: 'POST',
       credentials: 'include',
+      headers: {
+        ...this._csrfHeaders(),
+      },
       body: formData,
     });
 
@@ -218,6 +231,9 @@ class APIService {
     const response = await fetch(`${this.baseURL}/gym/`, {
       method: 'POST',
       credentials: 'include',
+      headers: {
+        ...this._csrfHeaders(),
+      },
       body: formData,
     });
 
@@ -272,6 +288,7 @@ class APIService {
       credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
+        ...this._csrfHeaders(),
       },
       body: JSON.stringify({
         analysis_id: analysisId,

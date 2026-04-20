@@ -182,7 +182,7 @@ LOGGING = {
         },
         'file': {
             'class': 'logging.FileHandler',
-            'filename': LOGS_DIR / 'streaming_errors', 
+            'filename': str(LOGS_DIR / 'streaming_errors'), 
             'formatter': 'verbose',
         },
     },
