@@ -151,7 +151,7 @@ const Analysis = () => {
           // Check for analysis_saved event
           if (data.type === 'analysis_saved') {
             setAnalysisId(data.analysis_id);
-            setGymSeshId(data.gym_sesh_id);
+            //setGymSeshId(data.gym_sesh_id);
             setCurrentStep('results');
           }
         }
@@ -165,11 +165,11 @@ const Analysis = () => {
     }
   };
 
-  const handleStartGym = () => {
+  /*const handleStartGym = () => {
     if (analysisId && gymSeshId) {
       navigate(`/gym/${gymSeshId}/${1}`);
     }
-  };
+  };*/
 
   const handleNewAnalysis = () => {
     setCurrentStep('input');

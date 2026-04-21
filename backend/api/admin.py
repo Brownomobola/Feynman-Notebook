@@ -4,8 +4,7 @@ from .models import (
     GymTranscript,
     Analysis,
     Chat,
-    GymSesh,
-    GymQuestions
+    GymSesh
 )
 
 
@@ -75,7 +74,7 @@ class GymSeshAdmin(admin.ModelAdmin):
         }),
     )
 
-
+"""
 @admin.register(GymQuestions)
 class GymQuestionsAdmin(admin.ModelAdmin):
     list_display = ('id', 'gym_sesh', 'question_number', 'status', 'is_correct', 'is_answered', 'answered_at')
@@ -94,3 +93,4 @@ class GymQuestionsAdmin(admin.ModelAdmin):
             'fields': ('is_correct', 'feedback', 'solution')
         }),
     )
+"""

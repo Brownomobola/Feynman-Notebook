@@ -7,7 +7,7 @@ from django.http import StreamingHttpResponse
 import json
 from ..schemas import GymResponseSchema
 from ..services import StreamGenerator, get_gemini_client
-from ..models import GymQuestions, GymSesh
+from ..models import Analysis, GymSesh
 from .auth import get_user_session_info, filter_by_owner
 
 FEYNMAN_GEMINI_API_KEY = settings.FEYNMAN_GEMINI_API_KEY
@@ -30,11 +30,12 @@ class GymSolutionView(APIView):
         
         # Step 1: Validation & Retrieval
         data = request.POST.dict()
-        gym_sesh_id = data.get('gym_sesh_id', '')
-        gym_question_id = data.get('gym_question_id', '')
+        #gym_sesh_id = data.get('gym_sesh_id', '')
+        #gym_question_id = data.get('gym_question_id', '')
+        analysis_id = data.get('analysis_id', '')
         question_number = int(data.get('question_number', 1))
 
-        if not gym_sesh_id:
+        """if not gym_sesh_id:
             return Response({'error': 'Gym session not found'}, status=404)
         if not gym_question_id:
             return Response({'error': 'Gym question not found'}, status=404)
@@ -68,7 +69,7 @@ class GymSolutionView(APIView):
         except GymQuestions.DoesNotExist:
             return Response({'error': 'Question does not exist'}, status=404)
         except GymSesh.DoesNotExist:
-            return Response({'error': 'Gym Session does not exist'}, status=404)
+            return Response({'error': 'Gym Session does not exist'}, status=404)"""
         
         prompt_parts = []
 
@@ -85,6 +86,20 @@ class GymSolutionView(APIView):
             prompt_parts.append({'text': data['attempt']})
         else:
             return Response({'error': 'Input attempt context'}, status=400)
+
+        try:
+            analysis = await Analysis.objects.aget(id=analysis_id)
+
+            # Create a new gym object in the databse with user/sessio ownership
+            gym_sesh = await GymSesh.objects.acreate(
+                user=owner_info['user'],
+                session_key=owner_info['session_key'],
+                status=GymSesh.Status.ACTIVE,
+                analysis=analysis,
+            )
+            
+        except:
+            ...
 
         # Async generator for streaming and saving to the database
         async def stream_with_db_save():

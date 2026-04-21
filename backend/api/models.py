@@ -131,7 +131,7 @@ class Chat(models.Model):
         USER = 'user', 'User'
         MODEL = 'model', 'Model'
 
-    user = models.ForeignKey(
+    """user = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
         null=True,
@@ -145,7 +145,7 @@ class Chat(models.Model):
         blank=True,
         db_index=True,
         help_text="Session key for anonymous users"
-    )
+    )"""
     analysis = models.ForeignKey(
         Analysis,
         on_delete=models.CASCADE,
@@ -167,8 +167,6 @@ class Chat(models.Model):
         indexes = [
             models.Index(fields=['analysis', 'created_at']),
             models.Index(fields=['role']),
-            models.Index(fields=['user', 'created_at']),
-            models.Index(fields=['session_key', 'created_at']),
         ]
 
     def __str__(self) -> str:
@@ -182,7 +180,7 @@ class GymSesh(models.Model):
         COMPLETED = 'completed', 'Completed'
         ABANDONED = 'abandoned', 'Abandoned'
 
-    user = models.ForeignKey(
+    """user = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
         null=True,
@@ -196,7 +194,8 @@ class GymSesh(models.Model):
         blank=True,
         db_index=True,
         help_text="Session key for anonymous users"
-    )
+    )"""
+
     analysis = models.ForeignKey(
         Analysis,
         on_delete=models.CASCADE,
@@ -222,9 +221,7 @@ class GymSesh(models.Model):
         indexes = [
             models.Index(fields=['-created_at']),
             models.Index(fields=['analysis', '-created_at']),
-            models.Index(fields=['analysis', 'status']),
-            models.Index(fields=['user', '-created_at']),
-            models.Index(fields=['session_key', '-created_at']),
+            models.Index(fields=['analysis', 'status'])
         ]
 
     def __str__(self) -> str:
@@ -237,8 +234,8 @@ class GymSesh(models.Model):
             return 0
         return round((self.score/ self.num_questions) * 100, 1)
     
-class GymQuestions(models.Model):
-    """Stores each gym questions and links it to the correct Gym session"""
+"""class GymQuestions(models.Model):
+    "Stores each gym questions and links it to the correct Gym session"
     class Status(models.TextChoices):
         PENDING = 'pending', 'Pending'
         TRANSCRIBING = 'transcribing', 'Transcribing'
@@ -282,7 +279,7 @@ class GymQuestions(models.Model):
         return f"Question {self.question_number} for Gym session {self.gym_sesh}"
     
     def to_dict(self)-> dict:
-        """Converts the Gym Question to a python dictionary"""
+        "Converts the Gym Question to a python dictionary"
         return {
             'id': self.id,
             'status': self.status,
@@ -295,3 +292,90 @@ class GymQuestions(models.Model):
             'is_answered': self.is_answered,
             'answered_at': self.answered_at.isoformat() if self.answered_at else None
         }
+"""
+
+class Question(models.Model):
+    class QUESTION_TYPE(models.TextChoices):
+        MCQ = 'mcq', 'Multiple Choice'
+        OPEN_ENDED = 'open_ended', 'Open Ended'
+
+    gym_sesh = models.ForeignKey(
+        GymSesh,
+        on_delete=models.CASCADE,
+        related_name="question_bank",
+        help_text="The gym session the question belongs to"
+    )
+
+    question_type = models.CharField(
+        choices=QUESTION_TYPE.choices,
+        max_length=16,
+        db_index=True,
+        help_text="The type of the question (MCQ or Open Ended)"
+    )
+    
+    question_text = models.TextField(help_text="The actual question text")
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the question was created")
+    mcq_options = models.JSONField(null=True, blank=True, help_text="The options for the multiple choice question")
+    correct_answer = models.CharField(max_length=255, null=True, blank=True, help_text="The correct answer for the multiple choice question")
+    theory_rubric = models.TextField(null=True, blank=True, help_text="The rubric for evaluating the theory question")
+
+    class Meta:
+        ordering = ['created_at']
+        verbose_name = 'Question'
+        verbose_name_plural = 'Questions'
+        indexes = [
+            models.Index(fields=['question_type']),
+            models.Index(fields=['gym_sesh', 'question_type']),
+            models.Index(fields=['created_at']),
+        ]
+
+    @property
+    def title(self) -> str:
+        """Uses the title of the analysis as the question title for better indexing and retrieval"""
+        if self.gym_sesh and self.gym_sesh.analysis and self.gym_sesh.analysis.title:
+            return self.gym_sesh.analysis.title
+        return f"Question {self.id}"
+
+    def __str__(self) -> str:
+        return f"{self.question_type} - title: {self.title}"
+
+class Attempt(models.Model):
+    class STATUS(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        TRANSCRIBING = 'transcribing', 'Transcribing'
+        EVALUATING = 'evaluating', 'Evaluating'
+        EVALUATED = 'evaluated', 'Evaluated'
+        ERROR = 'error', 'Error'
+
+    question = models.ForeignKey(
+        Question, 
+        on_delete=models.CASCADE,
+        related_name="attempts",
+        help_text="The question this attempt belongs to"
+        )
+    status = models.CharField(
+        choices=STATUS.choices,
+        max_length=20,
+        default=STATUS.PENDING,
+        db_index=True,
+        help_text="The status of the attempt"
+    )
+    user_response = models.TextField(help_text="The user's response to the question, either the selected option for MCQ or the essay for open ended") 
+    is_correct = models.BooleanField(default=False, help_text="Whether the user's response is correct (for MCQ) or meets the rubric (for theory)")
+    score = models.FloatField(null=True, blank=True, help_text="The score for the attempt, useful for partial credit on theory")
+    feedback = models.TextField(null=True, blank=True, help_text="Claude's feedback for theory")
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the attempt was created")
+
+    class Meta:
+        ordering = ['created_at']
+        verbose_name = 'Attempt'
+        verbose_name_plural = 'Attempts'
+        indexes = [
+            models.Index(fields=['status']),
+            models.Index(fields=['is_correct']),
+            models.Index(fields=['question', 'is_correct']),
+            models.Index(fields=['created_at']),
+        ]
+
+    def __str__(self) -> str:
+        return f"Attempt for Question {self.question.id} - Status: {self.status} - Created at {self.created_at.strftime('%Y-%m-%d %H:%M')}"

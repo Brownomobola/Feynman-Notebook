@@ -5,7 +5,7 @@ from django.http import StreamingHttpResponse
 from django.conf import settings
 import json
 from ..services import StreamGenerator, get_gemini_client
-from ..models import Analysis, GymQuestions, GymSesh
+from ..models import Analysis
 from ..schemas import AnalysisResponseSchema
 from .auth import get_user_session_info, filter_by_owner
 
@@ -127,7 +127,7 @@ class AnalyzeSolutionView(APIView):
                 analysis.explanation = accumulated_result.get('explanation', '')
                 await analysis.asave()
 
-                gym_sesh = await GymSesh.objects.acreate(
+                """gym_sesh = await GymSesh.objects.acreate(
                     user=owner_info['user'],
                     session_key=owner_info['session_key'],
                     analysis=analysis,
@@ -143,14 +143,14 @@ class AnalyzeSolutionView(APIView):
                 gym_sesh_id = gym_sesh.id
                 gym_question_id = gym_question.id
                 request.session['gym_sesh_id'] = gym_sesh.id
-                request.session['gym_question_id'] = gym_question.id
+                request.session['gym_question_id'] = gym_question.id"""
 
                 final_event = {
                     'type': 'analysis_saved',
                     'analysis_id': analysis_id,
-                    'gym_sesh_id': gym_sesh_id,
-                    'gym_question_id': gym_question_id,
-                    'question_number': 1,
+                    #'gym_sesh_id': gym_sesh_id,
+                    #'gym_question_id': gym_question_id,
+                    #'question_number': 1,
                     'is_complete': True
                 }
                 yield f"data: {json.dumps(final_event)}\n\n".encode('utf-8')
