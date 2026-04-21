@@ -215,7 +215,7 @@ class APIService {
   }
   */
  
-  // Get gym question, can also be used to start a new session
+  /*// Get gym question, can also be used to start a new session
   async getGymSession(analysisId, gymSeshId, questionCount) {
     return this.request(`/gym/?analysis_id=${analysisId}&gym_sesh_id=${gymSeshId}&question_num=${questionCount}`);
   }
@@ -275,6 +275,113 @@ class APIService {
       body: JSON.stringify({ gym_sesh_id: gymSeshId }),
     });
   }
+*/
+
+// Generate gym questions (MCQ returns JSON, Open-Ended streams SSE)
+async generateGymQuestions(analysisId, type, numQuestions, onChunk = null) {
+  const formData = new FormData();
+  formData.append('analysis_id', analysisId);
+  formData.append('type', type);
+  formData.append('num_questions', numQuestions);
+
+  const response = await fetch(`${this.baseURL}/gym/generate/`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      ...this._csrfHeaders(),
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to generate gym questions');
+  }
+
+  // MCQ: plain JSON response
+  if (type === 'MCQ') {
+    return await response.json();
+  }
+
+  // Open-Ended: SSE stream
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try {
+          const data = JSON.parse(line.slice(6));
+          if (onChunk) onChunk(data);
+        } catch (e) {
+          console.error('Failed to parse SSE data:', e);
+        }
+      }
+    }
+  }
+}
+
+// Evaluate a gym question answer (MCQ returns JSON, Open-Ended streams SSE)
+async evaluateGymAnswer(gymSeshId, questionId, userResponse, questionType, onChunk = null) {
+  const formData = new FormData();
+  formData.append('gym_sesh_id', gymSeshId);
+  formData.append('question_id', questionId);
+  formData.append('user_response', userResponse);
+
+  const response = await fetch(`${this.baseURL}/gym/evaluate/`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      ...this._csrfHeaders(),
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to evaluate gym answer');
+  }
+
+  // MCQ: plain JSON response
+  if (questionType === 'MCQ') {
+    return await response.json();
+  }
+
+  // Open-Ended: SSE stream
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try {
+          const data = JSON.parse(line.slice(6));
+          if (onChunk) onChunk(data);
+        } catch (e) {
+          console.error('Failed to parse SSE data:', e);
+        }
+      }
+    }
+  }
+}
 
   // Get chat history for an analysis
   async getChatHistory(analysisId) {

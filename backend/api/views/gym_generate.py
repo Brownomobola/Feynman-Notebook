@@ -6,7 +6,7 @@ from django.http import StreamingHttpResponse
 import json, logging
 from ..schemas import GymGenerateMCQListSchema, GymGenerateOpenEndedListSchema
 from ..services import StreamGenerator, get_gemini_client
-from ..models import Analysis, GymSesh, Question, Answer
+from ..models import Analysis, GymSesh, Question
 from .auth import get_user_session_info, filter_by_owner
 
 logger = logging.getLogger(__name__)

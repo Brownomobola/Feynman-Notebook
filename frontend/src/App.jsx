@@ -3,7 +3,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import Header from './components/Header';
 import Home from './pages/Home';
 import Analysis from './pages/Analysis';
-import Gym from './pages/Gym';
+import Gym from './pages/Gym2';
 import History from './pages/History';
 import Login from './pages/Login';
 import Register from './pages/Register';

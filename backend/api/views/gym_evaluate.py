@@ -34,8 +34,6 @@ class GymEvaluateView(APIView):
             return Response({'error': 'user_response is required'}, status=400)
         
         try:
-            # We don't filter by owner on GymSesh here since session matching might use session_key
-            # The structure for Gym is similar to Analysis owner logic
             gym_sesh = await GymSesh.objects.aget(id=gym_sesh_id) 
             
             question = await Question.objects.aget(id=question_id, gym_sesh=gym_sesh)

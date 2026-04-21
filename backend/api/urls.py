@@ -4,6 +4,8 @@ from .views import (
     ChatView,
     GymSolutionView,
     GymCompleteView,
+    GymGenerateView,
+    GymEvaluateView,    
     TranscribeAnalysisImageView,
     TranscribeGymImageView,
     CSRFTokenView,
@@ -30,6 +32,6 @@ urlpatterns = [
     
     # Gym endpoints
     path('gym/transcribe/', TranscribeGymImageView.as_view(), name='transcribe_gym'),
-    path('gym/complete/', GymCompleteView.as_view(), name='gym_complete'),
-    path('gym/', GymSolutionView.as_view(), name='gym_submit'),
+    path('gym/generate/', GymGenerateView.as_view(), name='gym_generate'),
+    path('gym/evaluate/', GymEvaluateView.as_view(), name='gym_evaluate'),
 ]
