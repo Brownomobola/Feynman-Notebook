@@ -27,3 +27,15 @@ class GymGenerateOpenEndedResponseSchema(BaseModel):
 	"""Defines the json response schema for the gym question generation"""
 	question_text: str = Field(description="The main text/question been asked")
 	answer_guide: str = Field(description="A step-by-step guide to how the question can be solved. This should be in LaTeX format if there are any math expressions.")
+     
+class GymGenerateMCQListSchema(BaseModel):
+    questions: list[GymGenerateMCQResponseSchema]
+
+class GymGenerateOpenEndedListSchema(BaseModel):
+    questions: list[GymGenerateOpenEndedResponseSchema]
+
+class GymEvaluateOpenEndedResponseSchema(BaseModel):
+    """Defines the json response schema for grading open ended questions"""
+    is_correct: bool = Field(description="Whether the user's response is correct or generally meets the rubric")
+    score: float = Field(description="The score assigned to the user out of 100 based on the rubric")
+    feedback: str = Field(description="Actionable, encouraging feedback on the user's attempt explaining what they got right and wrong")
