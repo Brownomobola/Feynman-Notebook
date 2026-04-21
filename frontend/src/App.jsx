@@ -13,7 +13,7 @@ function App() {
   return (
     <AuthProvider>
       <Router>
-        <div className="min-h-screen" style={{ backgroundColor: 'var(--color-paper)' }}>
+        <div className="min-h-screen">
           <Header />
           <Routes>
             <Route path="/" element={<Home />} />
