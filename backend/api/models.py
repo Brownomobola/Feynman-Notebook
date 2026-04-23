@@ -77,9 +77,11 @@ class Analysis(models.Model):
         on_delete=models.CASCADE,
         null=True,
         blank=True,
+        db_index=True,
         related_name="analyses",
         help_text="The user who created this analysis (null for anonymous)"
     )
+
     session_key = models.CharField(
         max_length=40,
         null=True,
@@ -87,6 +89,7 @@ class Analysis(models.Model):
         db_index=True,
         help_text="Session key for anonymous users"
     )
+
     problem = models.TextField(help_text="The problem context")
     attempt = models.TextField(help_text="The attempt context")
     title = models.CharField(max_length=250, blank=True, help_text="The title of the analysis")
@@ -149,7 +152,7 @@ class Chat(models.Model):
     analysis = models.ForeignKey(
         Analysis,
         on_delete=models.CASCADE,
-        related_name="Chats",
+        related_name="chats",
         help_text="The analysis the chat belongs to"
     )
     role = models.CharField(
@@ -198,16 +201,19 @@ class GymSesh(models.Model):
 
     analysis = models.ForeignKey(
         Analysis,
+        db_index=True,
         on_delete=models.CASCADE,
-        related_name="Gym_analyses",
+        related_name="gym_analyses",
         help_text="The analysis the gym session belongs to"
     )
+
     status = models.CharField(max_length=20, 
         choices=Status.choices, 
         default=Status.PENDING,
         db_index=True,
         help_text="The status of the gym session"
     )
+
     num_questions = models.IntegerField(default=1, help_text="The number of questions the user solved")
     score = models.IntegerField(default=0, blank=True, help_text="The number of questions answered correctly")
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the gym session started")
@@ -301,9 +307,18 @@ class Question(models.Model):
 
     gym_sesh = models.ForeignKey(
         GymSesh,
+        db_index=True,
         on_delete=models.CASCADE,
         related_name="question_bank",
         help_text="The gym session the question belongs to"
+    )
+
+    analysis = models.ForeignKey(
+        Analysis,
+        db_index=True,
+        on_delete=models.CASCADE,
+        related_name='analyses',
+        help_text="The analysis this attempt is linked to."
     )
 
     question_type = models.CharField(
@@ -312,7 +327,7 @@ class Question(models.Model):
         db_index=True,
         help_text="The type of the question (MCQ or Open Ended)"
     )
-    
+    question_no = models.IntegerField(help_text="The question number within the gym session")
     question_text = models.TextField(help_text="The actual question text")
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the question was created")
     mcq_options = models.JSONField(null=True, blank=True, help_text="The options for the multiple choice question")
@@ -329,15 +344,27 @@ class Question(models.Model):
             models.Index(fields=['created_at']),
         ]
 
+    def __str__(self) -> str:
+        return f"{self.question_type} - title: {self.title}"
+    
     @property
     def title(self) -> str:
         """Uses the title of the analysis as the question title for better indexing and retrieval"""
-        if self.gym_sesh and self.gym_sesh.analysis and self.gym_sesh.analysis.title:
-            return self.gym_sesh.analysis.title
+        if self.gym_sesh and self.analysis and self.analysis.title:
+            return self.analysis.title
         return f"Question {self.id}"
-
-    def __str__(self) -> str:
-        return f"{self.question_type} - title: {self.title}"
+    
+    @property
+    def owner_info(self):
+        if self.analysis.user:
+            return self.analysis.user
+        return ValueError("No such user was found")
+    
+    @property
+    def session_info(self):
+        if self.analysis.session_key:
+            return self.analysis.session_key
+        return ValueError("No such session was found")
 
 class Attempt(models.Model):
     class STATUS(models.TextChoices):
@@ -348,11 +375,21 @@ class Attempt(models.Model):
         ERROR = 'error', 'Error'
 
     question = models.ForeignKey(
-        Question, 
+        Question,
+        db_index=True,
         on_delete=models.CASCADE,
         related_name="attempts",
         help_text="The question this attempt belongs to"
         )
+    
+    analysis = models.ForeignKey(
+        Analysis,
+        db_index=True,
+        on_delete=models.CASCADE,
+        related_name='analyses',
+        help_text="The analysis this attempt is linked to."
+    )
+
     status = models.CharField(
         choices=STATUS.choices,
         max_length=20,
@@ -360,6 +397,7 @@ class Attempt(models.Model):
         db_index=True,
         help_text="The status of the attempt"
     )
+
     user_response = models.TextField(help_text="The user's response to the question, either the selected option for MCQ or the essay for open ended") 
     is_correct = models.BooleanField(default=False, help_text="Whether the user's response is correct (for MCQ) or meets the rubric (for theory)")
     score = models.FloatField(null=True, blank=True, help_text="The score for the attempt, useful for partial credit on theory")
@@ -379,3 +417,15 @@ class Attempt(models.Model):
 
     def __str__(self) -> str:
         return f"Attempt for Question {self.question.id} - Status: {self.status} - Created at {self.created_at.strftime('%Y-%m-%d %H:%M')}"
+    
+    @property
+    def owner_info(self):
+        if self.analysis.user:
+            return self.analysis.user
+        return ValueError("No such user was found")
+    
+    @property
+    def session_info(self):
+        if self.analysis.session_key:
+            return self.analysis.session_key
+        return ValueError("No such session was found")

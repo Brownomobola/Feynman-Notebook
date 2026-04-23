@@ -136,6 +136,7 @@ class GymEvaluateView(APIView):
                     
                     final_event = {
                         'type': 'evaluated',
+                        'attempt_id': attempt.id
                         'is_correct': is_correct,
                         'score': score,
                         'is_complete': True

@@ -4,84 +4,227 @@ from rest_framework.response import Response
 from django.conf import settings
 from django.http import StreamingHttpResponse
 import json
-from ..models import Chat, Analysis
+from ..models import Chat, Analysis, Question, Attempt
 from ..services import ChatStreamGenerator, get_gemini_client
 from .auth import get_user_session_info
 
 FEYNMAN_GEMINI_API_KEY = settings.FEYNMAN_GEMINI_API_KEY
 
+
+async def build_conversation_history(origin, data):
+    """
+    Builds the conversation history list based on the origin of the chat.
+
+    Origins:
+        - analysis: Prepends analysis context (problem, attempt, praise, diagnosis,
+                    explanation) as a model turn, then appends all stored chat messages.
+        - gym:      Prepends question/attempt context (question_text, theory_rubric,
+                    user_response, feedback) as a model turn, then appends all stored
+                    chat messages.
+        - learn:    Appends all stored chat messages with no additional context.
+
+    Returns:
+        list[dict]: Conversation history in {'role': ..., 'content': ...} format,
+                    ready to pass to ChatStreamGenerator.
+    """
+    conversation_history = []
+
+    if origin == 'analysis':
+        # Prepend the analysis context as an opening model turn
+        analysis_id = data.get('analysis_id')
+        if not analysis_id:
+            raise ValueError('analysis_id is required for analysis origin')
+        try:
+            analysis = await Analysis.objects.aget(id=analysis_id)
+        except Analysis.DoesNotExist:
+            raise ValueError('Analysis not found')
+        context_block = (
+            f"[Context] I have reviewed the student's work:\n"
+            f"Problem: {analysis.problem}\n"
+            f"Student Attempt: {analysis.attempt}\n\n"
+            f"My analysis:\n"
+            f"Praise: {analysis.praise}\n"
+            f"Diagnosis: {analysis.diagnosis}\n"
+            f"Explanation: {analysis.explanation}"
+        )
+        conversation_history.append({
+            'role': 'model',
+            'content': context_block
+        })
+
+        # Append all prior chat messages for this analysis
+        chat_messages = Chat.objects.filter(analysis_id=analysis.id).order_by('created_at')
+        async for msg in chat_messages:
+            conversation_history.append({
+                'role': msg.role,
+                'content': msg.content
+            })
+
+    elif origin == 'gym':
+        question_id = data.get('question_id')
+        if not question_id:
+            raise ValueError('question_id is required for gym origin')
+
+        try:
+            question = await Question.objects.filter(id=question_id).afirst()
+            attempt = await Attempt.objects.filter(question_id=question_id).afirst()
+        except:
+
+        # Prepend the gym question/attempt context as an opening model turn
+        context_block = (
+            f"[Context] The student attempted the following practice question:\n"
+            f"Question: {question.question_text}\n"
+            f"Theory Rubric: {question.theory_rubric}\n\n"
+            f"Student Response: {attempt.user_response}\n"
+            f"Feedback: {attempt.feedback}"
+        )
+        conversation_history.append({
+            'role': 'model',
+            'content': context_block
+        })
+
+        # Append all prior chat messages linked to this attempt
+        chat_messages = Chat.objects.filter(attempt_id=attempt_id).order_by('created_at')
+        async for msg in chat_messages:
+            conversation_history.append({
+                'role': msg.role,
+                'content': msg.content
+            })
+
+    else:
+        # origin == 'learn' (or any unrecognised origin): just load prior messages
+        analysis_id = data.get('analysis_id')
+        if analysis_id:
+            chat_messages = Chat.objects.filter(analysis_id=analysis_id).order_by('created_at')
+            async for msg in chat_messages:
+                conversation_history.append({
+                    'role': msg.role,
+                    'content': msg.content
+                })
+
+    return conversation_history
+
+
 class ChatView(APIView):
     """
     Handles conversational chat interactions with the AI tutor.
-    Can incorporate analysis history for context-aware responses.
+    Builds context dynamically based on the origin of the chat session.
     """
     parser_classes = (MultiPartParser, FormParser, JSONParser)
-    
+
     async def post(self, request, *args, **kwargs):
         """
-        Streams a conversational response based on the user's message and conversation history.
-        
+        Streams a conversational response based on the user's message,
+        conversation history, and origin-specific context.
+
         Request body:
-            - message: The user's current message (required)
-            - analysis_id: ID of the analysis for context (required)
-        
+            - message:     The user's current message (required)
+            - origin:      Source of the chat — 'analysis', 'gym', or 'learn' (required)
+            - analysis_id: Required when origin is 'analysis' or 'learn'
+            - attempt_id:  Required when origin is 'gym'
+
         Returns:
             StreamingHttpResponse with SSE formatted chat messages
         """
-        # Get shared client instance
         client = get_gemini_client()
-        
-        # Get user/session info for ownership
         owner_info = get_user_session_info(request)
-        
-        # Parse data from request
+
+        # Parse request data
         if request.content_type and 'application/json' in request.content_type:
             data = request.data
         else:
             data = request.POST.dict()
-        
-        # Validate user message
+
+        # Validate required fields
         user_message = data.get('message')
         if not user_message:
             return Response({'error': 'Message is required'}, status=400)
-        
-        # Get analysis_id (required for context and DB storage)
-        analysis_id = data.get('analysis_id')
-        if not analysis_id:
-            return Response({'error': 'analysis_id is required'}, status=400)
-        
-        request.session['analysis_id'] = analysis_id
-        
-        # Fetch the analysis for context (and verify ownership)
-        try:
-            analysis = await Analysis.objects.aget(id=analysis_id)
-            # Verify ownership
+
+        origin = data.get('origin')
+        if not origin or origin not in ('analysis', 'gym', 'learn'):
+            return Response(
+                {'error': "origin is required and must be one of: 'analysis', 'gym', 'learn'"},
+                status=400
+            )
+
+        # --- Resolve the primary object and verify ownership ---
+        analysis = None
+
+        if origin == 'analysis':
+            analysis_id = data.get('analysis_id')
+            if not analysis_id:
+                return Response({'error': 'analysis_id is required for analysis origin'}, status=400)
+
+            request.session['analysis_id'] = analysis_id
+
+            try:
+                analysis = await Analysis.objects.aget(id=analysis_id)
+            except Analysis.DoesNotExist:
+                return Response({'error': 'Analysis not found'}, status=404)
+
             if owner_info['user']:
                 if analysis.user != owner_info['user']:
                     return Response({'error': 'Access denied'}, status=403)
             elif owner_info['session_key']:
                 if analysis.session_key != owner_info['session_key']:
                     return Response({'error': 'Access denied'}, status=403)
-        except Analysis.DoesNotExist:
-            return Response({'error': 'Analysis not found'}, status=404)
-        
-        # Load conversation history from database
-        chat_messages = Chat.objects.filter(analysis_id=analysis_id).order_by('created_at')
-        conversation_history = []
-        async for msg in chat_messages:
-            conversation_history.append({
-                'role': msg.role,
-                'content': msg.content
-            })
-        
-        # Build system prompt with analysis context
-        system_prompt = f"""
+
+        elif origin == 'gym':
+            question_id = data.get('question_id')
+            attempt_id  = data.get('attempt_id')
+            if not question_id or not attempt_id:
+                return Response({'error': 'question_id or attempt_id is required for gym origin'}, status=400)
+
+            try:
+                attempt = await Attempt.objects.select_related('analysis', 'question').aget(id=attempt_id)
+            except Attempt.DoesNotExist:
+                return Response({'error': 'Question not found'}, status=404)
+
+            if owner_info['user']:
+                if attempt.owner_info != owner_info['user']:
+                    return Response({'error': 'Access denied'}, status=403)
+            elif owner_info['session_key']:
+                if attempt.session_info != owner_info['session_key']:
+                    return Response({'error': 'Access denied'}, status=403)
+
+        elif origin == 'learn':
+            analysis_id = data.get('analysis_id')
+            if not analysis_id:
+                return Response({'error': 'analysis_id is required for learn origin'}, status=400)
+
+            request.session['analysis_id'] = analysis_id
+
+            try:
+                analysis = await Analysis.objects.aget(id=analysis_id)
+            except Analysis.DoesNotExist:
+                return Response({'error': 'Analysis not found'}, status=404)
+
+            if owner_info['user']:
+                if analysis.user != owner_info['user']:
+                    return Response({'error': 'Access denied'}, status=403)
+            elif owner_info['session_key']:
+                if analysis.session_key != owner_info['session_key']:
+                    return Response({'error': 'Access denied'}, status=403)
+
+        # --- Build conversation history based on origin ---
+        try:
+            conversation_history = await build_conversation_history(
+                origin=origin,
+                data=data,
+                db_object=analysis,
+                owner_info=owner_info
+            )
+        except ValueError as e:
+            return Response({'error': str(e)}, status=400)
+
+        # --- System prompt (no origin-specific context here — that lives in history) ---
+        system_prompt = """
         <role>
         You are the "Feynman Engineering Tutor." Your goal is to help students understand concepts deeply through the Socratic method.
         Use real-world analogies and guide students to discover answers themselves rather than simply providing solutions.
         You are empathetic, encouraging, and focused on building genuine understanding.
         </role>
-        
+
         <conversation_style>
         - Ask probing questions to reveal gaps in understanding
         - Use the Feynman technique: explain complex concepts through simple analogies
@@ -89,44 +232,33 @@ class ChatView(APIView):
         - Celebrate progress and breakthroughs
         - Use LaTeX for math expressions: $...$ for inline, $$...$$ for block equations
         </conversation_style>
-        
+
         <guidelines>
         - Never just give the answer - guide the student to discover it
         - If a student is stuck, break the problem into smaller steps
         - Connect new concepts to things the student already understands
         - Encourage critical thinking with "why" and "what if" questions
         </guidelines>
-        
-        <previous_analysis>
-        You previously analyzed this student's work with the following context:
-        Problem: {analysis.problem}
-        Student Attempt: {analysis.attempt}
-        
-        Your previous analysis:
-        Title: {analysis.title}
-        Tags: {', '.join(analysis.tags) if analysis.tags else 'N/A'}
-        Praise: {analysis.praise}
-        Diagnosis: {analysis.diagnosis}
-        Explanation: {analysis.explanation}
-        
-        Use this context to provide more relevant and personalized guidance.
-        </previous_analysis>
         """
-        
-        # Save the user message to the database first
-        await Chat.objects.acreate(
-            user=owner_info['user'],
-            session_key=owner_info['session_key'],
-            analysis=analysis,
-            role=Chat.Role.USER,
-            content=user_message
-        )
-        
+
+        # --- Persist the incoming user message ---
+        chat_create_kwargs = {
+            'user': owner_info['user'],
+            'session_key': owner_info['session_key'],
+            'role': Chat.Role.USER,
+            'content': user_message,
+        }
+        if db_object:
+            chat_create_kwargs['db_oject'] = db_object
+        if origin == 'gym':
+            chat_create_kwargs['attempt'] = attempt
+
+        await Chat.objects.acreate(**chat_create_kwargs)
+
+        # --- Stream response and persist the model reply ---
         async def stream_with_db_save():
-            """Async generator for streaming chat and saving to database"""
             accumulated_response = ""
 
-            # Create chat stream generator
             chat_generator = ChatStreamGenerator(
                 client=client,
                 system_prompt=system_prompt,
@@ -136,29 +268,31 @@ class ChatView(APIView):
 
             async for chunk in chat_generator.generate():
                 yield chunk
-                
-                # Parse chunk to accumulate the response
+
                 try:
                     chunk_str = chunk.decode('utf-8')
                     if chunk_str.startswith('data: '):
                         json_str = chunk_str[6:].strip()
                         event_data = json.loads(json_str)
-                        
+
                         if event_data['type'] == 'text':
                             accumulated_response += event_data['content']
                         elif event_data['type'] == 'complete':
-                            # Save the complete AI response to the database
-                            await Chat.objects.acreate(
-                                user=owner_info['user'],
-                                session_key=owner_info['session_key'],
-                                analysis=analysis,
-                                role=Chat.Role.MODEL,
-                                content=accumulated_response
-                            )
+                            model_create_kwargs = {
+                                'user': owner_info['user'],
+                                'session_key': owner_info['session_key'],
+                                'role': Chat.Role.MODEL,
+                                'content': accumulated_response,
+                            }
+                            if analysis:
+                                model_create_kwargs['analysis'] = analysis
+                            if origin == 'gym':
+                                model_create_kwargs['attempt'] = attempt
+
+                            await Chat.objects.acreate(**model_create_kwargs)
                 except Exception:
                     pass
-        
-        # Return streaming response
+
         response = StreamingHttpResponse(
             stream_with_db_save(),
             content_type='text/event-stream'
@@ -166,27 +300,25 @@ class ChatView(APIView):
         response['Cache-Control'] = 'no-cache'
         response['X-Accel-Buffering'] = 'no'
         response['Access-Control-Allow-Origin'] = '*'
-        
+
         return response
-    
+
     async def get(self, request, *args, **kwargs):
         """
         Retrieves all chat messages for a given analysis.
-        
+
         Query params:
             - analysis_id: ID of the analysis (required)
-        
+
         Returns:
             List of chat messages
         """
-        # Get user/session info for ownership verification
         owner_info = get_user_session_info(request)
-        
+
         analysis_id = request.GET.get('analysis_id')
         if not analysis_id:
             return Response({'error': 'analysis_id is required'}, status=400)
-        
-        # Verify analysis ownership
+
         try:
             analysis = await Analysis.objects.aget(id=analysis_id)
             if owner_info['user']:
@@ -197,8 +329,7 @@ class ChatView(APIView):
                     return Response({'error': 'Access denied'}, status=403)
         except Analysis.DoesNotExist:
             return Response({'error': 'Analysis not found'}, status=404)
-        
-        # Fetch all chat messages for this analysis
+
         chat_messages = Chat.objects.filter(analysis_id=analysis_id).order_by('created_at')
         messages = []
         async for msg in chat_messages:
@@ -208,7 +339,7 @@ class ChatView(APIView):
                 'content': msg.content,
                 'created_at': msg.created_at.isoformat()
             })
-        
+
         return Response({
             'analysis_id': analysis_id,
             'messages': messages

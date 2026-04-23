@@ -99,18 +99,22 @@ class GymGenerateView(APIView):
                 
                 frontend_questions = []
                 for q_data in questions_data:
+                    question_no = 1
                     question = await Question.objects.acreate(
                         gym_sesh=gym_sesh,
                         question_type=Question.QUESTION_TYPE.MCQ,
+                        question_no=question_no,
                         question_text=q_data['question_text'],
                         mcq_options=q_data['options'],
                         correct_answer=q_data['correct_answer']
                     )
                     frontend_questions.append({
                         'id': question.id,
+                        'question_no': question.question_no,
                         'question_text': question.question_text,
                         'options': question.mcq_options
                     })
+                    question_no += 1
                 
                 return Response({
                     'gym_sesh_id': gym_sesh.id,

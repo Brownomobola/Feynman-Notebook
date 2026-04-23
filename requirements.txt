@@ -2,11 +2,8 @@ django==6.0
 python-dotenv==1.2.1
 pillow==12.0.0
 google-genai==1.56.0
-anthropic==0.96.0
 django-cors-headers==4.9.0
 djangorestframework==3.16.1
-psycopg2==2.9.11
-psycopg2-binary==2.9.11
 daphne==4.2.1
 adrf==0.1.12
 psycopg[binary, pool]
