@@ -11,7 +11,7 @@ from .auth import get_user_session_info
 FEYNMAN_GEMINI_API_KEY = settings.FEYNMAN_GEMINI_API_KEY
 
 
-async def build_conversation_history(origin, data):
+async def build_conversation_history(origin, db_object):
     """
     Builds the conversation history list based on the origin of the chat.
 
@@ -30,30 +30,21 @@ async def build_conversation_history(origin, data):
     conversation_history = []
 
     if origin == 'analysis':
-        # Prepend the analysis context as an opening model turn
-        analysis_id = data.get('analysis_id')
-        if not analysis_id:
-            raise ValueError('analysis_id is required for analysis origin')
-        try:
-            analysis = await Analysis.objects.aget(id=analysis_id)
-        except Analysis.DoesNotExist:
-            raise ValueError('Analysis not found')
         context_block = (
             f"[Context] I have reviewed the student's work:\n"
-            f"Problem: {analysis.problem}\n"
-            f"Student Attempt: {analysis.attempt}\n\n"
+            f"Problem: {db_object.problem}\n"
+            f"Student Attempt: {db_object.attempt}\n\n"
             f"My analysis:\n"
-            f"Praise: {analysis.praise}\n"
-            f"Diagnosis: {analysis.diagnosis}\n"
-            f"Explanation: {analysis.explanation}"
+            f"Praise: {db_object.praise}\n"
+            f"Diagnosis: {db_object.diagnosis}\n"
+            f"Explanation: {db_object.explanation}"
         )
         conversation_history.append({
             'role': 'model',
             'content': context_block
         })
 
-        # Append all prior chat messages for this analysis
-        chat_messages = Chat.objects.filter(analysis_id=analysis.id).order_by('created_at')
+        chat_messages = db_object.chats.all().order_by('created_at')
         async for msg in chat_messages:
             conversation_history.append({
                 'role': msg.role,
@@ -61,30 +52,19 @@ async def build_conversation_history(origin, data):
             })
 
     elif origin == 'gym':
-        question_id = data.get('question_id')
-        if not question_id:
-            raise ValueError('question_id is required for gym origin')
-
-        try:
-            question = await Question.objects.filter(id=question_id).afirst()
-            attempt = await Attempt.objects.filter(question_id=question_id).afirst()
-        except:
-
-        # Prepend the gym question/attempt context as an opening model turn
         context_block = (
             f"[Context] The student attempted the following practice question:\n"
-            f"Question: {question.question_text}\n"
-            f"Theory Rubric: {question.theory_rubric}\n\n"
-            f"Student Response: {attempt.user_response}\n"
-            f"Feedback: {attempt.feedback}"
+            f"Question: {db_object.question.question_text}\n"
+            f"Theory Rubric: {db_object.question.theory_rubric}\n\n"
+            f"Student Response: {db_object.user_response}\n"
+            f"Feedback: {db_object.feedback}"
         )
         conversation_history.append({
             'role': 'model',
             'content': context_block
         })
 
-        # Append all prior chat messages linked to this attempt
-        chat_messages = Chat.objects.filter(attempt_id=attempt_id).order_by('created_at')
+        chat_messages = db_object.analysis.chats.all().order_by('created_at')
         async for msg in chat_messages:
             conversation_history.append({
                 'role': msg.role,
@@ -92,15 +72,12 @@ async def build_conversation_history(origin, data):
             })
 
     else:
-        # origin == 'learn' (or any unrecognised origin): just load prior messages
-        analysis_id = data.get('analysis_id')
-        if analysis_id:
-            chat_messages = Chat.objects.filter(analysis_id=analysis_id).order_by('created_at')
-            async for msg in chat_messages:
-                conversation_history.append({
-                    'role': msg.role,
-                    'content': msg.content
-                })
+        chat_messages = db_object.chats.all().order_by('created_at')
+        async for msg in chat_messages:
+            conversation_history.append({
+                'role': msg.role,
+                'content': msg.content
+            })
 
     return conversation_history
 
@@ -148,7 +125,7 @@ class ChatView(APIView):
             )
 
         # --- Resolve the primary object and verify ownership ---
-        analysis = None
+        db_object = None
 
         if origin == 'analysis':
             analysis_id = data.get('analysis_id')
@@ -168,12 +145,12 @@ class ChatView(APIView):
             elif owner_info['session_key']:
                 if analysis.session_key != owner_info['session_key']:
                     return Response({'error': 'Access denied'}, status=403)
+            db_object = analysis
 
         elif origin == 'gym':
-            question_id = data.get('question_id')
             attempt_id  = data.get('attempt_id')
-            if not question_id or not attempt_id:
-                return Response({'error': 'question_id or attempt_id is required for gym origin'}, status=400)
+            if not attempt_id:
+                return Response({'error': 'attempt_id is required for gym origin'}, status=400)
 
             try:
                 attempt = await Attempt.objects.select_related('analysis', 'question').aget(id=attempt_id)
@@ -186,6 +163,7 @@ class ChatView(APIView):
             elif owner_info['session_key']:
                 if attempt.session_info != owner_info['session_key']:
                     return Response({'error': 'Access denied'}, status=403)
+            db_object = attempt
 
         elif origin == 'learn':
             analysis_id = data.get('analysis_id')
@@ -205,14 +183,13 @@ class ChatView(APIView):
             elif owner_info['session_key']:
                 if analysis.session_key != owner_info['session_key']:
                     return Response({'error': 'Access denied'}, status=403)
+            db_object = analysis
 
         # --- Build conversation history based on origin ---
         try:
             conversation_history = await build_conversation_history(
                 origin=origin,
-                data=data,
-                db_object=analysis,
-                owner_info=owner_info
+                db_object=db_object
             )
         except ValueError as e:
             return Response({'error': str(e)}, status=400)
@@ -243,15 +220,13 @@ class ChatView(APIView):
 
         # --- Persist the incoming user message ---
         chat_create_kwargs = {
-            'user': owner_info['user'],
-            'session_key': owner_info['session_key'],
             'role': Chat.Role.USER,
             'content': user_message,
         }
-        if db_object:
-            chat_create_kwargs['db_oject'] = db_object
+        if origin == 'analysis':
+            chat_create_kwargs['analysis'] = db_object
         if origin == 'gym':
-            chat_create_kwargs['attempt'] = attempt
+            chat_create_kwargs['analysis'] = db_object.analysis
 
         await Chat.objects.acreate(**chat_create_kwargs)
 
@@ -279,15 +254,13 @@ class ChatView(APIView):
                             accumulated_response += event_data['content']
                         elif event_data['type'] == 'complete':
                             model_create_kwargs = {
-                                'user': owner_info['user'],
-                                'session_key': owner_info['session_key'],
                                 'role': Chat.Role.MODEL,
                                 'content': accumulated_response,
                             }
-                            if analysis:
-                                model_create_kwargs['analysis'] = analysis
+                            if origin == 'analysis':
+                                model_create_kwargs['analysis'] = db_object
                             if origin == 'gym':
-                                model_create_kwargs['attempt'] = attempt
+                                model_create_kwargs['analysis'] = db_object.analysis
 
                             await Chat.objects.acreate(**model_create_kwargs)
                 except Exception:
@@ -330,7 +303,7 @@ class ChatView(APIView):
         except Analysis.DoesNotExist:
             return Response({'error': 'Analysis not found'}, status=404)
 
-        chat_messages = Chat.objects.filter(analysis_id=analysis_id).order_by('created_at')
+        chat_messages = analysis.chats.all()
         messages = []
         async for msg in chat_messages:
             messages.append({
