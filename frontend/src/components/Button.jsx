@@ -15,9 +15,9 @@ const Button = ({
 }) => {
   const baseClasses = 'btn';
   const variantClasses = {
-    primary: 'btn-primary',
-    secondary: 'btn-secondary',
-    ghost: 'btn-ghost',
+    primary: 'bg-blue-600 text-white hover:bg-blue-700 rounded-md',
+    secondary: 'bg-gray-200 text-gray-900 hover:bg-gray-300 rounded-md',
+    ghost: 'bg-transparent text-gray-700 hover:bg-gray-100 rounded-md',
   };
 
   const sizeClasses = {

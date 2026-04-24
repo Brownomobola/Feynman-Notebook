@@ -2,8 +2,6 @@ from django.urls import path
 from .views import (
     AnalyzeSolutionView,
     ChatView,
-    GymSolutionView,
-    GymCompleteView,
     GymGenerateView,
     GymEvaluateView,    
     TranscribeAnalysisImageView,

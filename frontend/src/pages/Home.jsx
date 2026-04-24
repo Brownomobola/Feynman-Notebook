@@ -64,7 +64,6 @@ const Home = () => {
               animate={{ scale: 1 }}
               transition={{ delay: 0.2, type: "spring", stiffness: 200 }}
               className="inline-flex items-center justify-center p-4 rounded-2xl mb-6"
-              style={{ backgroundColor: 'var(--color-accent)' }}
             >
               <Brain size={48} color="white" />
             </motion.div>
@@ -90,18 +89,19 @@ const Home = () => {
               understanding breaks down.
             </p>
 
-            <div className="flex flex-wrap gap-4 justify-center">
-              <Link to="/analysis">
+            <div className="flex flex-wrap gap-24 justify-center">
+              <Link to="/analysis" className='block'>
                 <Button 
                   variant="primary" 
-                  size="lg"
-                  icon={<ArrowRight size={20} />}
+                  size='lg'
+                  icon={<ArrowRight size={10} />}
+                  className='w-48'
                 >
                   Start Analysis
                 </Button>
               </Link>
-              <Link to="/history">
-                <Button variant="ghost" size="lg">
+              <Link to="/history" className='block'>
+                <Button variant="ghost" size="lg" className='w-48'>
                   View History
                 </Button>
               </Link>

@@ -8,6 +8,7 @@ db.sqlite3
 __pycache__/
 *.pyc
 *.py.old
+*.jsx.old
 frontend/SETUP.md
 frontend/ARCHITECTURE.md
 # Ignore Django migrations directories

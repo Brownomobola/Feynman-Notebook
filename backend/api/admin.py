@@ -48,7 +48,7 @@ class AnalysisAdmin(admin.ModelAdmin):
 
 @admin.register(Chat)
 class ChatAdmin(admin.ModelAdmin):
-    list_display = ('id', 'analysis', 'role', 'user', 'created_at')
+    list_display = ('id', 'analysis', 'role', 'created_at')
     list_filter = ('role', 'created_at')
     search_fields = ('content',)
     readonly_fields = ('created_at',)
@@ -57,7 +57,7 @@ class ChatAdmin(admin.ModelAdmin):
 
 @admin.register(GymSesh)
 class GymSeshAdmin(admin.ModelAdmin):
-    list_display = ('id', 'user', 'analysis', 'status', 'score', 'num_questions', 'to_percentage', 'created_at')
+    list_display = ('id', 'analysis', 'status', 'score', 'num_questions', 'to_percentage', 'created_at')
     list_filter = ('status', 'created_at')
     search_fields = ('analysis__title',)
     readonly_fields = ('created_at', 'to_percentage')

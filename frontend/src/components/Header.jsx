@@ -25,7 +25,7 @@ const Header = () => {
     <header 
       className="sticky top-0 z-50 backdrop-blur-md border-b"
       style={{ 
-        backgroundColor: 'rgba(253, 251, 247, 0.9)',
+        backgroundColor: 'rgba(29, 25, 34, 0.9)',
         borderColor: 'var(--color-border)'
       }}
     >
@@ -76,8 +76,6 @@ const Header = () => {
                     fontWeight: active ? 500 : 400
                   }}
                 >
-                  <Icon size={18} />
-                  <span>{item.label}</span>
                   
                   {active && (
                     <motion.div

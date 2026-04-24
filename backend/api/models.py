@@ -317,7 +317,7 @@ class Question(models.Model):
         Analysis,
         db_index=True,
         on_delete=models.CASCADE,
-        related_name='analyses',
+        related_name='analyses_q',
         help_text="The analysis this attempt is linked to."
     )
 
@@ -355,13 +355,13 @@ class Question(models.Model):
         return f"Question {self.id}"
     
     @property
-    def owner_info(self):
+    def owner_infoq(self):
         if self.analysis.user:
             return self.analysis.user
         return ValueError("No such user was found")
     
     @property
-    def session_info(self):
+    def session_infoq(self):
         if self.analysis.session_key:
             return self.analysis.session_key
         return ValueError("No such session was found")
@@ -386,7 +386,7 @@ class Attempt(models.Model):
         Analysis,
         db_index=True,
         on_delete=models.CASCADE,
-        related_name='analyses',
+        related_name='analyses_a',
         help_text="The analysis this attempt is linked to."
     )
 

@@ -10,7 +10,6 @@ This package contains all the views:
 
 from .analysis import AnalyzeSolutionView
 from .chat import ChatView
-from .gym import GymSolutionView, GymCompleteView
 from .gym_generate import GymGenerateView
 from .gym_evaluate import GymEvaluateView
 from .transcribe_analysis import TranscribeAnalysisImageView
@@ -28,8 +27,6 @@ from .auth import (
 __all__ = [
     'AnalyzeSolutionView',
     'ChatView',
-    'GymSolutionView',
-    'GymCompleteView',
     'GymGenerateView',
     'GymEvaluateView',
     'TranscribeAnalysisImageView',

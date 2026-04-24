@@ -524,7 +524,7 @@ const Gym = () => {
   };
 
   // ── Open-Ended answer ──
-  const handleOpenEndedSubmit = async (text) => {
+  const handleOpenEndedSubmit = async (text, imageFile) => {
     if (!gymSeshId || !currentQ) return;
     setIsStreaming(true);
     setStreamedFeedback('');
